@@ -77,6 +77,7 @@ with sync_playwright() as p:
     pg.click('#t-cfb'); pg.wait_for_timeout(800)
     res['cfb_msg'] = pg.inner_text('#cfbMsg')
     pg.click('#t-tracker'); pg.wait_for_timeout(500)
+    res['export_button'] = pg.evaluate("!!document.getElementById('bdExport') && document.getElementById('bdExport').nextElementSibling.id==='refreshAll'")
     pg.screenshot(path=os.environ.get('SHOT', '/tmp/smoke.png'), full_page=False)
     b.close()
 for k, v in res.items():

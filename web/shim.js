@@ -43,6 +43,36 @@ function showLogin() {
 }
 window.BD_signOut = async () => { await sb.auth.signOut(); location.reload(); };
 
+// ---------- "Download my data": every document as one file (same format the import page reads) ----------
+window.BD_exportData = async () => {
+  const session = await getSession(); const me = session.user.id; const docs = []; const page = 500;
+  for (let from = 0; ; from += page) {
+    const { data, error } = await sb.from('docs').select('coll,id,data').eq('uid', me).order('coll').order('id').range(from, from + page - 1);
+    if (error) throw error;
+    docs.push(...data);
+    if (data.length < page) break;
+  }
+  const day = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+  const blob = new Blob([JSON.stringify({ exportedAt: new Date().toISOString(), source: 'Bet Desk standalone', docs })], { type: 'application/json' });
+  const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: `bet-desk-data-${day}.json` });
+  document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+  return docs.length;
+};
+function addExportButton() {
+  const near = document.getElementById('refreshAll');
+  if (!near || document.getElementById('bdExport')) return;
+  const b = Object.assign(document.createElement('button'), { type: 'button', id: 'bdExport', className: 'ghost small', textContent: 'Download my data',
+    title: 'Saves your bets, picks, graded model props and settings as one file (also a backup you can re-import)' });
+  near.before(b);
+  b.addEventListener('click', async () => {
+    const t = b.textContent; b.disabled = true; b.textContent = 'Preparing…';
+    try { const n = await window.BD_exportData(); b.textContent = `Saved ${n} items`; }
+    catch (e) { b.textContent = 'Download failed'; console.error(e); }
+    setTimeout(() => { b.textContent = t; b.disabled = false; }, 4000);
+  });
+}
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', addExportButton); else addExportButton();
+
 // ---------- db: Firestore-style documents over the "docs" table ----------
 const cache = new Map(), docL = new Map(), collL = new Map(), loaded = new Set();
 const K = (c, i) => c + '|' + i;

@@ -74,6 +74,10 @@ You can run any job by hand: **Actions → Bet Desk jobs → Run workflow** (`ba
 1. Open `https://your-github-username.github.io/bet-desk/import.html`, sign in, pick `bet-desk-backup.json`, tap **Import**.
 2. Open the app. Your bets, record, profit chart, the model's logged props (60%+ Tracker), NBA game-line calls and model weights are all there.
 
+## Your data
+
+Tracker → **Data & tasks status** → **Download my data** saves everything (bets, picks, the model's graded props, settings, weights) as one file. It's your backup (the import page reads it) and what to send Claude when you want the model checked or refit.
+
 ## 7. iPad / iPhone
 
 Open the app in Safari → **Share → Add to Home Screen**. It opens full screen like an app and stays signed in.
