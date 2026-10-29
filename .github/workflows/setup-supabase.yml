@@ -36,6 +36,9 @@ jobs:
           APP_PASSWORD: ${{ secrets.APP_PASSWORD }}
         run: |
           [ -n "$APP_EMAIL" ] && [ -n "$APP_PASSWORD" ] || { echo "Add the APP_EMAIL and APP_PASSWORD secrets."; exit 1; }
+          # tidy the email: drop spaces, line breaks and quotes pasted along with it
+          APP_EMAIL=$(printf '%s' "$APP_EMAIL" | tr -d " \t\r\n\"'<>" | tr 'A-Z' 'a-z')
+          case "$APP_EMAIL" in *@*.*) ;; *) echo "::error::APP_EMAIL doesn't look like an email address (it has ${#APP_EMAIL} characters). Edit the secret to just the address, e.g. name@gmail.com."; exit 1;; esac
           H=(-sS -H "apikey: $SUPABASE_SERVICE_KEY" -H "Authorization: Bearer $SUPABASE_SERVICE_KEY" -H 'Content-Type: application/json')
           EXISTS=$(curl "${H[@]}" "$SUPABASE_URL/auth/v1/admin/users?per_page=1000" | jq --arg e "${APP_EMAIL,,}" '[.users[]|select((.email|ascii_downcase)==$e)]|length')
           if [ "$EXISTS" = 0 ]; then

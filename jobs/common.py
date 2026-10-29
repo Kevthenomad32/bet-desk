@@ -100,7 +100,7 @@ class DB:
         r = requests.get(f'{self.url}/auth/v1/admin/users', params={'per_page': 1000}, headers=self.h, timeout=30)
         r.raise_for_status()
         users = r.json().get('users', [])
-        email = (os.environ.get('APP_EMAIL') or '').strip().lower()
+        email = re.sub(r'[\s"\'<>]', '', os.environ.get('APP_EMAIL') or '').lower()
         hit = [u for u in users if (u.get('email') or '').lower() == email] if email else users
         if len(hit) != 1:
             raise SystemExit('Could not find your app login: run the "Set up Supabase" workflow first (and check the APP_EMAIL secret).')
