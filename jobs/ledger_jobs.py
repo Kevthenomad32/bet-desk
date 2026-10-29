@@ -203,7 +203,7 @@ def closing(db):
     for pid, u in ups.items():
         db.merge(f'ledger/picks/{pid}', u)
     # personal single bets: player props and game totals
-    idx = {(c['league'], norm(c['player']), c['market']): c for c in cl if c['player']}
+    idx = {(c['league'], norm(c['player']).replace(' ', ''), c['market']): c for c in cl if c['player']}
     nb = 0
     day0 = et_date(n - D(hours=54))
     for bt in db.list('ledger/bets'):
@@ -213,9 +213,10 @@ def closing(db):
         c = side = line = None
         if legs and legs[0]['market'] in SINGLE_MKT:
             L = legs[0]
-            c = idx.get(((bt.get('sport') or league_of(L)).upper(), norm(L['player']), L['market']))
+            c = idx.get(((bt.get('sport') or league_of(L)).upper(), norm(L['player']).replace(' ', ''), L['market']))
             if not c:  # last-name-only labels
-                cands = [v for k, v in idx.items() if k[2] == L['market'] and k[1].split()[-1:] == norm(L['player']).split()[-1:]]
+                last = (norm(L['player']).split() or [''])[-1]
+                cands = [v for k, v in idx.items() if last and k[2] == L['market'] and norm(v['player']).split()[-1:] == [last]]
                 c = cands[0] if len(cands) == 1 else None
             side, line = L['side'], L['line']
         else:

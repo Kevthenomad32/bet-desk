@@ -64,22 +64,41 @@ def names(events):
             continue
         for o in e['odds'].values():
             if o.get('playerID') and o['playerID'] in e.get('players', {}):
-                out.add(e['players'][o['playerID']]['name'])
+                out.add(pname(e['players'][o['playerID']], o['playerID']))
     return out
+
+
+def pname(p, pid):
+    """Player's display name. SportsGameOdds sometimes leaves out 'name' (NBA, Oct 2026): use first/last name, else the id
+    (AARON_WIGGINS_1_NBA -> Aaron Wiggins)."""
+    p = p or {}
+    if p.get('name'):
+        return p['name']
+    fl = ' '.join(x for x in (p.get('firstName'), p.get('lastName')) if x)
+    if fl:
+        return fl
+    parts = str(pid or '').split('_')
+    while parts and (parts[-1].isdigit() or parts[-1].isupper() and parts[-1] in ('NBA', 'NFL', 'NCAAF', 'NCAAB', 'WNBA', 'MLB', 'NHL')):
+        parts.pop()
+    return ' '.join(w.capitalize() if len(w) > 2 or not w.isalpha() else w.upper() for w in parts) or str(pid)
 
 
 def build(lg, events, players):
     """Odds doc {source, updated, games, props} from SportsGameOdds events and the player-averages list."""
     num = lambda x: float(x) if x not in (None, '') else None
-    avg, avg2 = {}, {}
+    avg, avg2, avg3 = {}, {}, {}
     for v in players or []:
         v = dict(v)
         if lg == 'nba' and None not in (v.get('pts'), v.get('reb'), v.get('ast')):
             v['pra'] = round(v['pts'] + v['reb'] + v['ast'], 1)
-        n = norm(v['name']); avg[n] = v; avg2.setdefault(key2(n), v)
+        n = norm(v['name']); avg[n] = v; avg2.setdefault(key2(n), v); avg3.setdefault(n.replace(' ', ''), v)
+
+    def find(name):  # exact, then first-3-letters + last name, then ignoring spaces/hyphens (GILGEOUSALEXANDER, DE_AARON)
+        n = norm(name)
+        return avg.get(n) or avg2.get(key2(n)) or avg3.get(n.replace(' ', ''))
 
     def lookup(name, m):
-        n = norm(name); v = avg.get(n) or avg2.get(key2(n))
+        v = find(name)
         return None if not v else v.get(m)
     games, props = [], []
     for e in events:
@@ -105,8 +124,11 @@ def build(lg, events, players):
             p = e['players'].get(pid, {}); team = nk.get(p.get('teamID'))
             if not team:
                 continue
-            props.append({'player': p.get('name', pid), 'team': team, 'market': m, 'line': num(o['bookOverUnder']), 'open': num(o.get('openBookOverUnder')),
-                          'odds': o.get('bookOdds'), 'uodds': O.get(o.get('opposingOddID', ''), {}).get('bookOdds'), 'avg': lookup(p.get('name', ''), m)})
+            nm = pname(p, pid)
+            if not p.get('name') and find(nm):
+                nm = find(nm)['name']  # the name rebuilt from an id: use the stats feed's spelling so the model matches it
+            props.append({'player': nm, 'team': team, 'market': m, 'line': num(o['bookOverUnder']), 'open': num(o.get('openBookOverUnder')),
+                          'odds': o.get('bookOdds'), 'uodds': O.get(o.get('opposingOddID', ''), {}).get('bookOdds'), 'avg': lookup(nm, m)})
     return {'source': 'SportsGameOdds consensus', 'updated': iso(now_utc()), 'games': games, 'props': props}
 
 

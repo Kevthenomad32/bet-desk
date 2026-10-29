@@ -15,6 +15,15 @@ def imp(o):
     except Exception: return None
     return 100/(o+100) if o>0 else -o/(-o+100)
 
+def _pname(p,pid):  # SportsGameOdds sometimes leaves out 'name': first/last name, else the id (AARON_WIGGINS_1_NBA -> Aaron Wiggins)
+    if p.get('name'): return p['name']
+    fl=' '.join(x for x in (p.get('firstName'),p.get('lastName')) if x)
+    if fl: return fl
+    w=str(pid).split('_')
+    while w and (w[-1].isdigit() or w[-1] in ('NBA','NFL','NCAAF','WNBA')): w.pop()
+    return ' '.join(x.capitalize() if len(x)>2 else x.upper() for x in w)
+
+
 def closing_lines(events_by_file):
     closing=[]
     for evs in events_by_file:
@@ -27,7 +36,7 @@ def closing_lines(events_by_file):
                 pid=o.get('playerID'); m=MK.get(o.get('statID')) if pid else ('total' if o.get('statEntityID')=='all' and o.get('statID')=='points' else None)
                 if not m or o.get('closeBookOverUnder') in (None,''): continue
                 u=O.get(o.get('opposingOddID',''),{})
-                closing.append({'league':lg.upper(),'game':game,'player':e['players'].get(pid,{}).get('name') if pid else None,'market':m,
+                closing.append({'league':lg.upper(),'game':game,'player':_pname(e['players'].get(pid,{}),pid) if pid else None,'market':m,
                   'close':num(o['closeBookOverUnder']),'closeOdds':o.get('closeBookOdds'),'closeUOdds':u.get('closeBookOdds'),'open':num(o.get('openBookOverUnder')),'result':o.get('score')})
             sp=O.get('points-home-game-sp-home',{})
             if sp.get('closeBookSpread') not in (None,''): closing.append({'league':lg.upper(),'game':game,'player':None,'market':'spread_home','close':num(sp['closeBookSpread']),'closeOdds':sp.get('closeBookOdds'),'open':num(sp.get('openBookSpread'))})
@@ -35,12 +44,12 @@ def closing_lines(events_by_file):
 
 def pick_updates(closing, picks, since=None):
     """{pick id: {closeLine, closeOdds, clv[, clvProb]}} for picks (list of dicts with _id) that match a closing line."""
-    idx={(c['league'],norm(c['player']),c['market']):c for c in closing if c['player']}
+    idx={(c['league'],norm(c['player']).replace(' ',''),c['market']):c for c in closing if c['player']}  # spaces ignored: names rebuilt from ids lose hyphens
     out={}
     for p in picks:
         if p.get('closeLine') is not None: continue
         if since and (p.get('gameStart') or '')[:19] < since[:19]: continue
-        c=idx.get((p.get('league'),norm(p.get('player')),p.get('market')))
+        c=idx.get((p.get('league'),norm(p.get('player')).replace(' ',''),p.get('market')))
         if not c: continue
         side=p.get('side'); line=p.get('line'); close=c['close']
         clv=round((close-line) if side=='over' else (line-close),1)
