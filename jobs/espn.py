@@ -29,6 +29,8 @@ def get(path, **params):
                 if r.status_code == 404:
                     return {}
                 seen.append(f'{r.status_code}')
+                if r.status_code == 400:
+                    break  # a refused request won't change on retry; move to the next variant
             except requests.RequestException as e:  # noqa: PERF203
                 seen.append(type(e).__name__)
             time.sleep(1.5 * (attempt + 1))

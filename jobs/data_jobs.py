@@ -12,7 +12,17 @@ def archive_range(db, lg, start, end):
     n, d = 0, start
     while d <= end:
         chunk_end = min(d + dt.timedelta(days=6), end)
-        games = espn.scoreboard(lg, f'{YMD(d)}-{YMD(chunk_end)}')
+        try:
+            games = espn.scoreboard(lg, f'{YMD(d)}-{YMD(chunk_end)}')
+        except RuntimeError:
+            # ESPN sometimes refuses date ranges: go day by day, skipping days it still refuses
+            games, day = [], d
+            while day <= chunk_end:
+                try:
+                    games += espn.scoreboard(lg, YMD(day))
+                except RuntimeError as e:
+                    print(f'::warning title=ESPN {lg} {YMD(day)}::{e}')
+                day += dt.timedelta(days=1)
         n += espn.archive_games(db, lg, games)
         d = chunk_end + dt.timedelta(days=1)
     return n
