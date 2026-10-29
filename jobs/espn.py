@@ -11,18 +11,28 @@ _S = requests.Session()
 _S.headers['User-Agent'] = 'Mozilla/5.0 (BetDesk jobs)'
 
 
+HOSTS = ('https://site.api.espn.com/apis/site/v2/sports/', 'https://site.web.api.espn.com/apis/site/v2/sports/')
+
+
 def get(path, **params):
-    for attempt in range(4):
-        try:
-            r = _S.get(BASE + path, params=params, timeout=30)
-            if r.status_code == 200:
-                return r.json()
-            if r.status_code == 404:
-                return {}
-        except requests.RequestException:
-            pass
-        time.sleep(1.5 * (attempt + 1))
-    raise RuntimeError(f'ESPN unavailable: {path}')
+    """ESPN JSON. Tries the main host, then the web host, then again without 'limit' (ESPN sometimes rejects it)."""
+    seen = []
+    tries = [(h, params) for h in HOSTS]
+    if 'limit' in params:
+        tries += [(h, {k: v for k, v in params.items() if k != 'limit'}) for h in HOSTS]
+    for host, ps in tries:
+        for attempt in range(2):
+            try:
+                r = _S.get(host + path, params=ps, timeout=30)
+                if r.status_code == 200:
+                    return r.json()
+                if r.status_code == 404:
+                    return {}
+                seen.append(f'{r.status_code}')
+            except requests.RequestException as e:  # noqa: PERF203
+                seen.append(type(e).__name__)
+            time.sleep(1.5 * (attempt + 1))
+    raise RuntimeError(f'ESPN unavailable: {path} {params} (got {", ".join(seen)})')
 
 
 def num(v):
