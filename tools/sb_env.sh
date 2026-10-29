@@ -25,10 +25,11 @@ sb_get() {
 REF="${SUPABASE_PROJECT_REF:-}"
 if [ -z "$REF" ]; then
   PROJECTS=$(sb_get /projects "listing your projects")
-  N=$(echo "$PROJECTS" | jq 'length')
   echo "Projects this token can see: $(echo "$PROJECTS" | jq -r '[.[]|.name+" ("+.id+")"]|join(", ")')"
-  [ "$N" = 1 ] || { echo "::error::The token sees $N projects; add a SUPABASE_PROJECT_REF secret with the bet-desk project's id."; exit 1; }
-  REF=$(echo "$PROJECTS" | jq -r '.[0].id')
+  # the project named bet-desk, else the only project
+  REF=$(echo "$PROJECTS" | jq -r '([.[]|select((.name|ascii_downcase)=="bet-desk")] | if length==1 then .[0].id else empty end) // empty')
+  [ -n "$REF" ] || REF=$(echo "$PROJECTS" | jq -r 'if length==1 then .[0].id else empty end')
+  [ -n "$REF" ] || { echo "::error::Couldn't tell which project is Bet Desk; add a SUPABASE_PROJECT_REF secret with its id."; exit 1; }
 fi
 KEYS=$(sb_get "/projects/$REF/api-keys?reveal=true" "reading the project's API keys")
 ANON=$(echo "$KEYS" | jq -r '[.[]|select(.name=="anon")][0].api_key // empty')
