@@ -3,7 +3,7 @@ with ESPN + the games archive as the fallback."""
 import datetime as dt
 
 from . import espn, sgo, statmuse, stats
-from .common import ET, et_date, iso, now_et, now_utc
+from .common import ET, et_date, iso, norm, now_et, now_utc
 
 YMD = lambda d: d.strftime('%Y%m%d')
 
@@ -192,6 +192,10 @@ def nfl_weekly(db):
             warn('StatMuse NFL players', e)
     if players is None:
         players = stats.nfl_players(rows)
+    else:  # StatMuse returns the top 300 by fantasy points: fill in anyone else with a prop from the box scores
+        have = {norm(p['name']) for p in players if p.get('name')}
+        extra = [p for p in stats.nfl_players(rows) if norm(p['name']) not in have]
+        players = players + extra
     db.set('nflPlayers', {'updated': iso(now_utc()), 'source': psrc, 'players': players})
     out.append(f'{len(players)} player averages ({psrc})')
     try:
