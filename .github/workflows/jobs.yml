@@ -3,6 +3,9 @@ name: Bet Desk jobs
 on:
   schedule:
     - cron: '31 * * * *'   # every hour at :31; jobs.run picks what's due on the US Eastern clock
+  push:   # a code update reloads the season (safe to repeat)
+    branches: [main]
+    paths: ['jobs/**']
   workflow_dispatch:
     inputs:
       job:
@@ -30,7 +33,7 @@ jobs:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
       - name: Run
-        run: python -m jobs.run "${{ github.event.inputs.job || 'tick' }}"
+        run: python -m jobs.run "${{ github.event_name == 'push' && 'backfill' || github.event.inputs.job || 'tick' }}"
         env:
           APP_EMAIL: ${{ secrets.APP_EMAIL }}
           SGO_API_KEY: ${{ secrets.SGO_API_KEY }}

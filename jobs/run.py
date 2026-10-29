@@ -56,6 +56,8 @@ def run(db, name):
         ok = False
         traceback.print_exc()
     print(f'[{name}] {"ok" if ok else "FAILED"}: {summary}')
+    if not ok:
+        annotate(name, summary)
     try:
         db.log_run(name, started, ok, summary)
     except Exception:  # noqa: BLE001
@@ -63,17 +65,30 @@ def run(db, name):
     return ok
 
 
+def annotate(where, msg):
+    # Shows on the GitHub run page (visible without opening the logs).
+    tb = traceback.format_exc().strip().splitlines()
+    loc = next((l.strip() for l in reversed(tb) if l.strip().startswith('File ')), '')
+    print(f'::error title={where}::{str(msg)[:600]} {loc[:200]}'.replace('\n', ' '))
+
+
 def backfill(db):
     nba_season, nfl_season = stats.season_years()
     today = now_et().date()
-    n = data_jobs.archive_range(db, 'nba', dt.date(nba_season - 1, 10, 1), today - dt.timedelta(days=1))
-    print(f'NBA: archived {n} games')
-    week, _, _ = espn.current_nfl_week()
-    m = 0
-    for w in range(1, (week or 1)):
-        m += espn.archive_games(db, 'nfl', espn.scoreboard('nfl', str(nfl_season), seasontype=2, week=w))
-    print(f'NFL: archived {m} games through Week {(week or 1) - 1}')
     ok = True
+    try:
+        n = data_jobs.archive_range(db, 'nba', dt.date(nba_season - 1, 10, 1), today - dt.timedelta(days=1))
+        print(f'NBA: archived {n} games')
+    except Exception as e:  # noqa: BLE001
+        traceback.print_exc(); annotate('backfill NBA', f'{type(e).__name__}: {e}'); ok = False
+    try:
+        week, _, _ = espn.current_nfl_week()
+        m = 0
+        for w in range(1, (week or 1)):
+            m += espn.archive_games(db, 'nfl', espn.scoreboard('nfl', str(nfl_season), seasontype=2, week=w))
+        print(f'NFL: archived {m} games through Week {(week or 1) - 1}')
+    except Exception as e:  # noqa: BLE001
+        traceback.print_exc(); annotate('backfill NFL', f'{type(e).__name__}: {e}'); ok = False
     for j in ('injuries', 'nba_daily', 'nfl_weekly'):
         ok &= run(db, j)
     return ok
@@ -81,7 +96,11 @@ def backfill(db):
 
 def main(argv):
     name = argv[1] if len(argv) > 1 else 'tick'
-    db = DB()
+    try:
+        db = DB()
+    except BaseException as e:  # noqa: BLE001
+        annotate('database', f'{type(e).__name__}: {e}')
+        raise
     if name == 'backfill':
         return 0 if backfill(db) else 1
     jobs = due_now() if name == 'tick' else [name]

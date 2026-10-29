@@ -171,6 +171,7 @@ def archive_games(db, lg, games, force=False):
             rows.append({'league': lg, 'game_id': g['id'], 'player_id': p['id'], 'name': p['name'], 'name_norm': norm(p['name']), 'team': mine,
                          'team_ab': g['home_ab'] if p['side'] == 'home' else g['away_ab'], 'opp': opp, 'opp_ab': g['away_ab'] if p['side'] == 'home' else g['home_ab'],
                          'date': g['date'], 'season': g['season'], 'starter': p['starter'], 'dnp': p['dnp'], 'stats': p['stats']})
+        rows = list({r['player_id']: r for r in rows if r['player_id']}.values())  # one row per player (a batch can't touch a row twice)
         if rows:
             db.upsert('player_games', rows, 'league,game_id,player_id')
         n += 1
