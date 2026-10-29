@@ -74,6 +74,15 @@ You can run any job by hand: **Actions → Bet Desk jobs → Run workflow** (`ba
 1. Open `https://your-github-username.github.io/bet-desk/import.html`, sign in, pick `bet-desk-backup.json`, tap **Import**.
 2. Open the app. Your bets, record, profit chart, the model's logged props (60%+ Tracker), NBA game-line calls and model weights are all there.
 
+## StatMuse (optional)
+
+Add a `STATMUSE_API_KEY` secret (from developer.statmuse.com/keys) and run **Set up Supabase** again. Then:
+
+- the jobs take injury reports, NBA team ratings, player averages / last-5 role and NFL defense / player averages from StatMuse (ESPN stays as the automatic fallback; each run's page shows a yellow warning if it had to fall back), and
+- the NBA and NFL tabs get an **Ask StatMuse** box with your remaining StatMuse quota.
+
+StatMuse use is about 10–15 requests a day from the jobs, plus one per question you ask.
+
 ## Your data
 
 Tracker → **Data & tasks status** → **Download my data** saves everything (bets, picks, the model's graded props, settings, weights) as one file. It's your backup (the import page reads it) and what to send Claude when you want the model checked or refit.
@@ -116,6 +125,6 @@ If the Claude Bet Desk page changes and you want those changes here, save its HT
 - `web/` — the app (`index.html` is the Bet Desk page; `shim.js` connects it to Supabase, ESPN and Claude; `import.html` restores a backup)
 - `supabase/schema.sql` — database tables and security rules (applied by the Set up Supabase workflow)
 - `tools/sb_env.sh` — looks up the project URL and keys from the access token
-- `supabase/functions/` — `espn` (scores/box scores), `claude` (slip reading), `jobs` (Refresh button)
+- `supabase/functions/` — `espn` (scores/box scores), `claude` (slip reading), `jobs` (Refresh button), `statmuse` (Ask StatMuse)
 - `jobs/` — the scheduled jobs (`run.py` decides what's due; `model/` holds the v6 picks model, the NBA game-line model and the closing-line script, unchanged)
 - `tests/` — `pytest tests/` for the jobs; `tests/smoke/run_smoke.py` loads the page in a headless browser against a fake database

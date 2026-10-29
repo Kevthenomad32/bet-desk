@@ -36,6 +36,8 @@ with sync_playwright() as p:
     pg.on('pageerror', lambda e: errors.append(str(e)))
     pg.on('console', lambda m: logs.append(f'{m.type}: {m.text}') if m.type in ('error', 'warning') else None)
 
+    asked = []
+
     def route(r):
         u = r.request.url
         if 'supabase-js' in u:
@@ -43,6 +45,11 @@ with sync_playwright() as p:
             return r.fulfill(body=seed + open(os.path.join(ROOT, 'tests/smoke/mock_supabase.js')).read(), content_type='application/javascript')
         if u.endswith('/config.js'):
             return r.fulfill(body="window.BD_CONFIG={supabaseUrl:'https://test.supabase.co',supabaseAnonKey:'anon'};", content_type='application/javascript')
+        if '/functions/v1/statmuse' in u:
+            asked.append(json.loads(r.request.post_data))
+            return r.fulfill(body=json.dumps({'type': 'stats', 'answer': 'Jalen Brunson averaged 27.2 points in his last 5 games.',
+                'table': {'columns': ['player', 'PointsPerGame'], 'rows': [['Jalen Brunson', '27.2']]}, 'quota': {'limit': '10000', 'remaining': '9876'}}),
+                content_type='application/json')
         if '/functions/v1/espn' in u:
             return r.fulfill(body=json.dumps(ESPN_SUM if 'summary' in u else ESPN_SB), content_type='application/json')
         if u.startswith('http://app.test/'):
@@ -77,6 +84,13 @@ with sync_playwright() as p:
     pg.click('#t-cfb'); pg.wait_for_timeout(800)
     res['cfb_msg'] = pg.inner_text('#cfbMsg')
     pg.click('#t-tracker'); pg.wait_for_timeout(500)
+    pg.click('#t-nba'); pg.wait_for_timeout(300)
+    pg.fill('#tab-nba .bd-ask-in', 'Brunson points last 5 games'); pg.click('#tab-nba .bd-ask button'); pg.wait_for_timeout(800)
+    res['ask'] = pg.inner_text('#tab-nba .bd-ask').replace('\n', ' | ')[:220]
+    res['ask_sent'] = asked
+    if os.environ.get('ASKSHOT'): pg.locator('#tab-nba .bd-ask').screenshot(path=os.environ['ASKSHOT'])
+    res['ask_nfl_panel'] = pg.evaluate("document.querySelector('#tab-nfl .bd-ask .bd-ask-lg').value")
+    pg.click('#t-tracker'); pg.wait_for_timeout(300)
     res['export_button'] = pg.evaluate("!!document.getElementById('bdExport') && document.getElementById('bdExport').nextElementSibling.id==='refreshAll'")
     pg.screenshot(path=os.environ.get('SHOT', '/tmp/smoke.png'), full_page=False)
     b.close()

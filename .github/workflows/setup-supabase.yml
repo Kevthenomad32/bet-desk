@@ -3,7 +3,7 @@ name: Set up Supabase
 
 # One click after the secrets are in: creates the database tables, your app login, the three server functions
 # and their keys, then publishes the app and starts loading this season's games.
-# Secrets used: SUPABASE_ACCESS_TOKEN, APP_EMAIL, APP_PASSWORD, ANTHROPIC_API_KEY, GH_TOKEN (optional), SUPABASE_PROJECT_REF (optional).
+# Secrets used: SUPABASE_ACCESS_TOKEN, APP_EMAIL, APP_PASSWORD, ANTHROPIC_API_KEY, GH_TOKEN / STATMUSE_API_KEY / SUPABASE_PROJECT_REF (optional).
 on:
   workflow_dispatch:
   push:
@@ -57,14 +57,16 @@ jobs:
         with:
           version: latest
       - name: Deploy the server functions
-        run: for f in espn claude jobs; do supabase functions deploy "$f" --project-ref "$SUPABASE_PROJECT_REF" --use-api; done
+        run: for f in espn claude jobs statmuse; do supabase functions deploy "$f" --project-ref "$SUPABASE_PROJECT_REF" --use-api; done
       - name: Give the functions their keys
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GH_TOKEN_SECRET: ${{ secrets.GH_TOKEN }}
+          STATMUSE_KEY: ${{ secrets.STATMUSE_API_KEY }}
         run: |
           ARGS=(GH_REPO="${{ github.repository }}")
           [ -n "$ANTHROPIC_API_KEY" ] && ARGS+=(ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY") || echo "No ANTHROPIC_API_KEY yet: slip reading stays off until you add it and rerun."
+          [ -n "$STATMUSE_KEY" ] && ARGS+=(STATMUSE_API_KEY="$STATMUSE_KEY") || echo "No STATMUSE_API_KEY yet: the Ask StatMuse box stays off until you add it and rerun."
           [ -n "$GH_TOKEN_SECRET" ] && ARGS+=(GH_TOKEN="$GH_TOKEN_SECRET") || echo "No GH_TOKEN yet: the app's Refresh button stays off until you add it and rerun."
           supabase secrets set --project-ref "$SUPABASE_PROJECT_REF" "${ARGS[@]}"
       - name: Publish the app and start loading this season's games

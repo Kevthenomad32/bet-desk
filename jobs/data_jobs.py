@@ -1,10 +1,16 @@
-"""Data refresh jobs: NBA daily, NFL weekly, injuries, college lines. All model inputs come from ESPN + the games archive."""
+"""Data refresh jobs: NBA daily, NFL weekly, injuries, college lines. Model inputs come from StatMuse (when STATMUSE_API_KEY is set),
+with ESPN + the games archive as the fallback."""
 import datetime as dt
 
-from . import espn, sgo, stats
+from . import espn, sgo, statmuse, stats
 from .common import ET, et_date, iso, now_et, now_utc
 
 YMD = lambda d: d.strftime('%Y%m%d')
+
+
+def warn(what, e):
+    """Shows on the GitHub run page; the job carries on with ESPN."""
+    print(f'::warning title={what}::{str(e)[:300]} (used ESPN instead)')
 
 
 def archive_range(db, lg, start, end):
@@ -37,8 +43,16 @@ def season_rows(db, lg, season, season_type=2):
 
 # ---------- injuries ----------
 def build_injuries(db, lg, keep_week=None):
-    rows = espn.injuries(lg)
-    doc = {'source': 'ESPN injury report', 'updated': iso(now_utc()), 'players': rows}
+    src = 'ESPN injury report'
+    rows = None
+    if statmuse.enabled():
+        try:
+            rows = statmuse.injuries(lg, keep_week); src = 'StatMuse injury report'
+        except Exception as e:  # noqa: BLE001
+            warn(f'StatMuse {lg} injuries', e)
+    if rows is None:
+        rows = espn.injuries(lg)
+    doc = {'source': src, 'updated': iso(now_utc()), 'players': rows}
     if keep_week:
         doc['week'] = keep_week
     return doc
@@ -75,11 +89,19 @@ def nba_daily(db):
     archived = archive_range(db, 'nba', start, today - dt.timedelta(days=1))
     games, rows = season_rows(db, 'nba', season)
     out = []
-    teams = stats.nba_team_doc(games)
+    teams, tsrc = None, 'ESPN box scores'
+    if statmuse.enabled():
+        try:
+            teams = statmuse.nba_team_doc(season); tsrc = 'StatMuse'
+            if len(teams) != 30:
+                warn('StatMuse NBA team stats', f'only {len(teams)} teams'); teams = None; tsrc = 'ESPN box scores'
+        except Exception as e:  # noqa: BLE001
+            warn('StatMuse NBA team stats', e)
+    teams = teams or stats.nba_team_doc(games)
     if len(teams) == 30:
-        db.set('nba', {'source': 'ESPN box scores', 'updated': today.isoformat(), 'season': f'{season - 1}-{str(season)[2:]}', 'mode': f'{season - 1}-{str(season)[2:]} only',
+        db.set('nba', {'source': tsrc, 'updated': today.isoformat(), 'season': f'{season - 1}-{str(season)[2:]}', 'mode': f'{season - 1}-{str(season)[2:]} only',
                        'curWeight': 1, 'teams': teams})
-        out.append(f'team stats for 30 teams ({len(games)} games)')
+        out.append(f'team stats for 30 teams ({tsrc})')
     else:
         out.append(f'team stats skipped: only {len(teams)} teams have games')
     # slate + back-to-backs
@@ -91,11 +113,20 @@ def nba_daily(db):
                         'b2b': sorted(playing & played_y)})
     out.append(f'{len(sb_today)} games today, b2b: {", ".join(sorted(playing & played_y)) or "none"}')
     # players + injury pool
-    players, gp = stats.nba_players(rows)
+    players = None; psrc = 'ESPN box scores'
+    if statmuse.enabled():
+        try:
+            players, gp = statmuse.nba_players(season); psrc = 'StatMuse'
+            if len(players) < 100:
+                warn('StatMuse NBA players', f'only {len(players)} players'); players = None; psrc = 'ESPN box scores'
+        except Exception as e:  # noqa: BLE001
+            warn('StatMuse NBA players', e)
+    if players is None:
+        players, gp = stats.nba_players(rows)
     inj = merged_injuries(db, db.get('nbaInjuries') or build_injuries(db, 'nba'))
-    pdoc = {'updated': iso(now_utc()), 'players': players, 'pool': stats.nba_pool(players, gp, playing, inj.get('players', []))}
+    pdoc = {'updated': iso(now_utc()), 'source': psrc, 'players': players, 'pool': stats.nba_pool(players, gp, playing, inj.get('players', []))}
     db.set('nbaPlayers', pdoc)
-    out.append(f"{len(players)} player averages, pool {len(pdoc['pool'])}")
+    out.append(f"{len(players)} player averages ({psrc}), pool {len(pdoc['pool'])}")
     # book lines
     if sb_today:
         try:
@@ -129,8 +160,20 @@ def nfl_weekly(db):
     out.append(f'archived {n} games')
     games, rows = season_rows(db, 'nfl', season)
     teams, through = stats.nfl_defense_doc(games)
+    dsrc = 'ESPN box scores'
+    if statmuse.enabled():
+        try:
+            smt = statmuse.nfl_defense(season)
+            if len(smt) == 32:
+                # StatMuse has no 3rd-down / red-zone rates: keep those from the box scores
+                teams = {t: {**v, 'third': (teams.get(t) or {}).get('third'), 'rz': (teams.get(t) or {}).get('rz')} for t, v in smt.items()}
+                dsrc = 'StatMuse + ESPN box scores (3rd down/red zone)'
+            else:
+                warn('StatMuse NFL defense', f'only {len(smt)} teams')
+        except Exception as e:  # noqa: BLE001
+            warn('StatMuse NFL defense', e)
     if len(teams) == 32:
-        db.set('defense', {'source': 'ESPN box scores', 'updated': now_et().strftime('%Y-%m-%d'), 'weekThrough': through, 'teams': teams})
+        db.set('defense', {'source': dsrc, 'updated': now_et().strftime('%Y-%m-%d'), 'weekThrough': through, 'teams': teams})
         out.append(f'defense through Week {through}')
     else:
         out.append(f'defense skipped: {len(teams)} teams')
@@ -139,9 +182,18 @@ def nfl_weekly(db):
     db.set('slate', {'week': week, 'games': [{'away': g['away'], 'home': g['home'], 'time': espn.et_time(g['start'], with_day=True)} for g in up],
                      'bye': sorted(stats.ALL['nfl'] - playing)})
     out.append(f'Week {week}: {len(up)} games')
-    players = stats.nfl_players(rows)
-    db.set('nflPlayers', {'updated': iso(now_utc()), 'players': players})
-    out.append(f'{len(players)} player averages')
+    players = None; psrc = 'ESPN box scores'
+    if statmuse.enabled():
+        try:
+            players = statmuse.nfl_players(season); psrc = 'StatMuse'
+            if len(players) < 100:
+                warn('StatMuse NFL players', f'only {len(players)} players'); players = None; psrc = 'ESPN box scores'
+        except Exception as e:  # noqa: BLE001
+            warn('StatMuse NFL players', e)
+    if players is None:
+        players = stats.nfl_players(rows)
+    db.set('nflPlayers', {'updated': iso(now_utc()), 'source': psrc, 'players': players})
+    out.append(f'{len(players)} player averages ({psrc})')
     try:
         out.append(nfl_lines(db, players))
     except Exception as e:  # noqa: BLE001

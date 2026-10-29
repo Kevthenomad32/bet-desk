@@ -37,6 +37,7 @@ jobs:
         env:
           APP_EMAIL: ${{ secrets.APP_EMAIL }}
           SGO_API_KEY: ${{ secrets.SGO_API_KEY }}
+          STATMUSE_API_KEY: ${{ secrets.STATMUSE_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
           CLAUDE_MODEL: ${{ vars.CLAUDE_MODEL }}

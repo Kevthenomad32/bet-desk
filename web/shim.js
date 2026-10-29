@@ -73,6 +73,50 @@ function addExportButton() {
 }
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', addExportButton); else addExportButton();
 
+// ---------- "Ask StatMuse": plain-English stats questions, answered by StatMuse (your API key, via the statmuse function) ----------
+const esc = v => String(v ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+async function askStatMuse(league, q) {
+  const r = await fetch(FN('statmuse'), { method: 'POST', headers: { Authorization: `Bearer ${await token()}`, apikey: C.supabaseAnonKey, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ league, q }) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw Object.assign(new Error(j.error || `StatMuse unavailable (${r.status})`), { quota: j.quota });
+  return j;
+}
+window.BD_askStatMuse = askStatMuse;
+function addAskPanel(tabId, league) {
+  const tab = document.getElementById(tabId);
+  if (!tab || tab.querySelector('.bd-ask')) return;
+  const p = document.createElement('div');
+  p.className = 'panel bd-ask';
+  p.innerHTML = `<div class="row spread"><h3>Ask StatMuse</h3><span class="small muted bd-ask-q"></span></div>
+    <form class="row" style="gap:8px;flex-wrap:wrap">
+      <select class="bd-ask-lg" aria-label="League" style="flex:0 0 auto;width:auto">${['nba', 'nfl', 'cfb', 'nhl', 'mlb', 'wnba'].map(l => `<option value="${l}"${l === league ? ' selected' : ''}>${l.toUpperCase()}</option>`).join('')}</select>
+      <input class="bd-ask-in" type="text" maxlength="200" placeholder="${league === 'nfl' ? 'e.g. most rushing yards allowed to RBs last 4 weeks' : 'e.g. Brunson points last 5 games'}" style="flex:1 1 200px;min-width:0">
+      <button type="submit" class="primary small">Ask</button>
+    </form>
+    <div class="bd-ask-out small" aria-live="polite"></div>`;
+  tab.prepend(p);
+  const out = p.querySelector('.bd-ask-out'), qinfo = p.querySelector('.bd-ask-q');
+  const showQuota = qt => { if (qt && qt.limit && qt.remaining != null) qinfo.textContent = `${Number(qt.remaining).toLocaleString()} of ${Number(qt.limit).toLocaleString()} StatMuse requests left`; };
+  p.querySelector('form').addEventListener('submit', async e => {
+    e.preventDefault();
+    const q = p.querySelector('.bd-ask-in').value.trim(); if (!q) return;
+    const btn = p.querySelector('button'); btn.disabled = true; out.textContent = 'Asking StatMuse…';
+    try {
+      const a = await askStatMuse(p.querySelector('.bd-ask-lg').value, q);
+      let html = `<p style="margin:0 0 8px;font-size:15px">${esc(a.answer || 'StatMuse had no answer for that.')}</p>`;
+      if (a.table && a.table.rows.length) {
+        html += `<div class="tablewrap"><table><thead><tr>${a.table.columns.map(c => `<th>${esc(c.replace(/([a-z])([A-Z])/g, '$1 $2'))}</th>`).join('')}</tr></thead><tbody>${
+          a.table.rows.map(r => `<tr>${r.map(v => `<td>${esc(v)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+      }
+      out.innerHTML = html; showQuota(a.quota);
+    } catch (err) { out.textContent = err.message; showQuota(err.quota); }
+    btn.disabled = false;
+  });
+}
+function addAskPanels() { addAskPanel('tab-nba', 'nba'); addAskPanel('tab-nfl', 'nfl'); }
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', addAskPanels); else addAskPanels();
+
 // ---------- db: Firestore-style documents over the "docs" table ----------
 const cache = new Map(), docL = new Map(), collL = new Map(), loaded = new Set();
 const K = (c, i) => c + '|' + i;
