@@ -185,7 +185,7 @@ def test_pregame_logs_shadow(monkeypatch):
     inj = next(d['data'] for d in docs if d['id'] == 'nbaInjuries')
     monkeypatch.setattr(espn, 'injuries', lambda lg: inj['players'] if lg == 'nba' else [])
     msg = model_jobs.pregame(db)
-    sh = db.list('ledger/shadow')
+    sh = [x for x in db.list('ledger/shadow') if x['league'] == 'NBA']  # a real NFL game from the backup can also fall in the window
     assert len(sh) == 1 and sh[0]['game'] == f"{g['away']} @ {g['home']}" and len(sh[0]['rows']) > 10, msg
     r = sh[0]['rows'][0]
     assert 0 < r['pModel'] < 1 and 0 < r['pBook'] < 1 and r['comps']['lg'] == 'nba'
