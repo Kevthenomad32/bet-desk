@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Bet Desk Import</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script src="config.js"></script><script src="shim.js"></script>
+<style>
+:root{--bg:#EEF1F5;--surface:#fff;--line:#CDD5E0;--ink:#121826;--muted:#5B6678;--accent:#1F4FE0;--display:"Arial Narrow",sans-serif}
+@media (prefers-color-scheme:dark){:root{--bg:#0E131C;--surface:#161D29;--line:#2C3647;--ink:#E8EDF5;--muted:#93A0B5;--accent:#6E93FF;color-scheme:dark}}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,sans-serif;padding:24px max(16px,env(safe-area-inset-left,0px))}
+main{max-width:560px;margin:0 auto;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:20px;display:flex;flex-direction:column;gap:12px}
+h1{margin:0;font-size:22px}.muted{color:var(--muted)}.small{font-size:13px}
+button,input{font:inherit}button{background:var(--accent);color:#fff;border:0;border-radius:8px;padding:10px 14px;cursor:pointer}button:disabled{opacity:.5}
+label.f{display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+</style>
+</head>
+<body>
+<main>
+  <h1>Import your Bet Desk history</h1>
+  <p class="muted small">Pick the backup file (bet-desk-backup.json). It copies your bets, the app's picks, the model's graded props, your settings and model weights into your account. Documents that already exist are replaced by the backup's version.</p>
+  <label class="f">Backup file<input type="file" id="file" accept="application/json,.json"></label>
+  <button id="go" disabled>Import</button>
+  <p id="msg" class="small"></p>
+  <p class="small"><a href="./">Back to Bet Desk</a></p>
+</main>
+<script>
+const $ = s => document.querySelector(s); let backup = null;
+$('#file').addEventListener('change', async e => {
+  try { backup = JSON.parse(await e.target.files[0].text()); $('#msg').textContent = `${backup.docs.length} documents ready (exported ${backup.exportedAt}).`; $('#go').disabled = false; }
+  catch (err) { $('#msg').textContent = 'That file isn\'t a Bet Desk backup.'; }
+});
+$('#go').addEventListener('click', async () => {
+  $('#go').disabled = true; const user = await window.claude.use('user'); const uid = await user.id();
+  const rows = backup.docs.map(d => ({ uid, coll: d.coll, id: d.id, data: d.data }));
+  for (let i = 0; i < rows.length; i += 100) {
+    const { error } = await window.BD_SB.from('docs').upsert(rows.slice(i, i + 100), { onConflict: 'uid,coll,id' });
+    if (error) { $('#msg').textContent = 'Stopped: ' + error.message; $('#go').disabled = false; return; }
+    $('#msg').textContent = `Imported ${Math.min(i + 100, rows.length)} of ${rows.length}…`;
+  }
+  $('#msg').textContent = `Done: imported ${rows.length} documents. Open Bet Desk to check your history.`;
+});
+</script>
+</body>
+</html>

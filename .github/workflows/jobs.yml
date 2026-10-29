@@ -1,0 +1,40 @@
+name: Bet Desk jobs
+
+on:
+  schedule:
+    - cron: '31 * * * *'   # every hour at :31; jobs.run picks what's due on the US Eastern clock
+  workflow_dispatch:
+    inputs:
+      job:
+        description: 'Job to run: tick (whatever is due now), backfill, pregame, nbagl, nba_daily, nfl_weekly, nfl_lines, injuries, settle, closing, recap, live, cfb_lines'
+        required: false
+        default: 'tick'
+
+concurrency:
+  group: bet-desk-jobs
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install requests==2.32.3
+      - name: Find the Supabase project
+        run: tools/sb_env.sh
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+      - name: Run
+        run: python -m jobs.run "${{ github.event.inputs.job || 'tick' }}"
+        env:
+          APP_EMAIL: ${{ secrets.APP_EMAIL }}
+          SGO_API_KEY: ${{ secrets.SGO_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          CLAUDE_MODEL: ${{ vars.CLAUDE_MODEL }}
+          BETDESK_PICKS_N: ${{ vars.BETDESK_PICKS_N }}

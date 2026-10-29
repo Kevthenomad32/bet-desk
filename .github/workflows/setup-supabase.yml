@@ -1,0 +1,67 @@
+name: Set up Supabase
+
+# One click after the secrets are in: creates the database tables, your app login, the three server functions
+# and their keys, then publishes the app and starts loading this season's games.
+# Secrets used: SUPABASE_ACCESS_TOKEN, APP_EMAIL, APP_PASSWORD, ANTHROPIC_API_KEY, GH_TOKEN (optional), SUPABASE_PROJECT_REF (optional).
+on: workflow_dispatch
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Find the Supabase project
+        run: tools/sb_env.sh
+      - name: Create the database tables
+        run: |
+          jq -Rs '{query: .}' supabase/schema.sql > /tmp/q.json
+          curl -sS -f -X POST "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF/database/query" \
+            -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H 'Content-Type: application/json' --data @/tmp/q.json > /dev/null
+          echo "Tables ready."
+      - name: Create your app login and turn off public sign-ups
+        env:
+          APP_EMAIL: ${{ secrets.APP_EMAIL }}
+          APP_PASSWORD: ${{ secrets.APP_PASSWORD }}
+        run: |
+          [ -n "$APP_EMAIL" ] && [ -n "$APP_PASSWORD" ] || { echo "Add the APP_EMAIL and APP_PASSWORD secrets."; exit 1; }
+          H=(-sS -H "apikey: $SUPABASE_SERVICE_KEY" -H "Authorization: Bearer $SUPABASE_SERVICE_KEY" -H 'Content-Type: application/json')
+          EXISTS=$(curl "${H[@]}" "$SUPABASE_URL/auth/v1/admin/users?per_page=1000" | jq --arg e "${APP_EMAIL,,}" '[.users[]|select((.email|ascii_downcase)==$e)]|length')
+          if [ "$EXISTS" = 0 ]; then
+            jq -n --arg e "$APP_EMAIL" --arg p "$APP_PASSWORD" '{email:$e,password:$p,email_confirm:true}' \
+              | curl "${H[@]}" -f -X POST "$SUPABASE_URL/auth/v1/admin/users" --data @- > /dev/null
+            echo "Login created for $APP_EMAIL."
+          else
+            echo "Login for $APP_EMAIL already exists."
+          fi
+          curl -sS -f -X PATCH "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF/config/auth" \
+            -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H 'Content-Type: application/json' \
+            --data '{"disable_signup": true}' > /dev/null
+          echo "Public sign-ups are off."
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - name: Deploy the server functions
+        run: for f in espn claude jobs; do supabase functions deploy "$f" --project-ref "$SUPABASE_PROJECT_REF" --use-api; done
+      - name: Give the functions their keys
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GH_TOKEN_SECRET: ${{ secrets.GH_TOKEN }}
+        run: |
+          ARGS=(GH_REPO="${{ github.repository }}")
+          [ -n "$ANTHROPIC_API_KEY" ] && ARGS+=(ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY") || echo "No ANTHROPIC_API_KEY yet: slip reading stays off until you add it and rerun."
+          [ -n "$GH_TOKEN_SECRET" ] && ARGS+=(GH_TOKEN="$GH_TOKEN_SECRET") || echo "No GH_TOKEN yet: the app's Refresh button stays off until you add it and rerun."
+          supabase secrets set --project-ref "$SUPABASE_PROJECT_REF" "${ARGS[@]}"
+      - name: Publish the app and start loading this season's games
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow run pages.yml --ref "${{ github.ref_name }}" || echo "Couldn't start 'Publish the app' (turn on Settings -> Pages -> Source: GitHub Actions, then run it)."
+          gh workflow run jobs.yml --ref "${{ github.ref_name }}" -f job=backfill
+          echo "Done. The app will be at https://${GITHUB_REPOSITORY_OWNER,,}.github.io/${GITHUB_REPOSITORY#*/}/ in a minute; games finish loading in 10-15 minutes."
