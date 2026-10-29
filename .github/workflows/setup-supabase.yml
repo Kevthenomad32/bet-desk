@@ -3,7 +3,11 @@ name: Set up Supabase
 # One click after the secrets are in: creates the database tables, your app login, the three server functions
 # and their keys, then publishes the app and starts loading this season's games.
 # Secrets used: SUPABASE_ACCESS_TOKEN, APP_EMAIL, APP_PASSWORD, ANTHROPIC_API_KEY, GH_TOKEN (optional), SUPABASE_PROJECT_REF (optional).
-on: workflow_dispatch
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/setup-supabase.yml', 'supabase/**', 'tools/sb_env.sh']
 
 permissions:
   contents: read
