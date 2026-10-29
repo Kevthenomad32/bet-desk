@@ -1,11 +1,13 @@
-// Starts a Bet Desk job now (the app's "Refresh all data" button): triggers the GitHub Actions workflow with that job.
+// Starts a Bet Desk job now: triggers the GitHub Actions workflow with that job.
+// Called by the app's "Refresh all data" button (signed-in user) and by the hourly database timer (pg_cron, job "tick",
+// authenticated with the x-cron-secret header matching the cron_config table).
 // Secrets: GH_TOKEN (fine-grained token with Actions: read and write on the repo), GH_REPO ("you/bet-desk").
 const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
-const JOBS = new Set(['pregame', 'nbagl', 'nba_daily', 'nfl_weekly', 'injuries', 'settle', 'closing', 'recap', 'live', 'cfb_lines']);
+const JOBS = new Set(['tick', 'pregame', 'nbagl', 'nba_daily', 'nfl_weekly', 'injuries', 'settle', 'closing', 'recap', 'live', 'cfb_lines']);
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { ...CORS, 'Content-Type': 'application/json' } });
 
 // Only a signed-in Bet Desk user may call this (the public anon key alone is refused).
@@ -16,9 +18,20 @@ async function signedIn(req: Request): Promise<boolean> {
   return r.ok;
 }
 
+// The hourly timer: its secret lives in the cron_config table (readable only with the service role).
+async function fromCron(req: Request): Promise<boolean> {
+  const got = req.headers.get('x-cron-secret') || '';
+  if (got.length < 32) return false;
+  const svc = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
+  const r = await fetch(`${Deno.env.get('SUPABASE_URL')}/rest/v1/cron_config?select=secret&id=eq.1`, { headers: { apikey: svc, Authorization: `Bearer ${svc}` } });
+  if (!r.ok) return false;
+  const rows = await r.json();
+  return Array.isArray(rows) && rows[0]?.secret === got;
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
-  if (!(await signedIn(req))) return json({ error: 'sign in first' }, 401);
+  if (!(await fromCron(req)) && !(await signedIn(req))) return json({ error: 'sign in first' }, 401);
   let job = '';
   try { job = String((await req.json()).job || ''); } catch { /* ignore */ }
   if (!JOBS.has(job)) return json({ error: 'unknown job' }, 400);

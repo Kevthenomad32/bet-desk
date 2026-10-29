@@ -31,6 +31,14 @@ jobs:
             -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H 'Content-Type: application/json' --data @/tmp/q.json)
           [ "$code" -lt 400 ] || { echo "::error::Supabase said $code creating tables: $(head -c 600 /tmp/r.txt)"; exit 1; }
           echo "Tables ready."
+      - name: Start the hourly timer
+        run: |
+          SQL="insert into public.cron_config (secret, anon, url) values (replace(gen_random_uuid()::text || gen_random_uuid()::text, '-', ''), '$SUPABASE_ANON_KEY', '$SUPABASE_URL/functions/v1/jobs') on conflict (id) do update set anon = excluded.anon, url = excluded.url;"
+          jq -n --arg q "$SQL" '{query: $q}' > /tmp/q2.json
+          code=$(curl -sS -o /tmp/r.txt -w '%{http_code}' -X POST "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF/database/query" \
+            -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H 'Content-Type: application/json' --data @/tmp/q2.json)
+          [ "$code" -lt 400 ] || { echo "::error::Supabase said $code starting the timer: $(head -c 400 /tmp/r.txt)"; exit 1; }
+          echo "Hourly timer set (every hour at :31)."
       - name: Create your app login and turn off public sign-ups
         env:
           APP_EMAIL: ${{ secrets.APP_EMAIL }}

@@ -1,8 +1,8 @@
 name: Bet Desk jobs
 
 on:
-  schedule:
-    - cron: '31 * * * *'   # every hour at :31; jobs.run picks what's due on the US Eastern clock
+  # The hourly :31 run is started by the database timer (pg_cron in Supabase -> the jobs function -> this workflow),
+  # because GitHub's own schedule skipped most hours. jobs.run picks what's due on the US Eastern clock.
   push:   # a code update reloads the season (safe to repeat)
     branches: [main]
     paths: ['jobs/**']

@@ -110,3 +110,21 @@ create policy "read job runs" on public.job_runs for select to authenticated usi
 do $$ begin
   alter publication supabase_realtime add table public.docs;
 exception when duplicate_object then null; end $$;
+
+
+-- 5) Hourly timer (GitHub's own schedule skips hours): pg_cron calls the jobs function at :31 every hour with job "tick".
+create extension if not exists pg_cron;
+create extension if not exists pg_net;
+create table if not exists public.cron_config (id int primary key default 1 check (id = 1), secret text not null, anon text, url text);
+alter table public.cron_config enable row level security;  -- no policies: only the service role can read it
+-- After setup, fill it once (the Set up Supabase workflow does this):
+--   insert into cron_config (secret, anon, url) values (replace(gen_random_uuid()::text || gen_random_uuid()::text, '-', ''), '<anon key>', 'https://<ref>.supabase.co/functions/v1/jobs')
+--   on conflict (id) do update set anon = excluded.anon, url = excluded.url;
+create or replace function public.bet_desk_tick() returns bigint language sql security definer set search_path = public, extensions as $$
+  select net.http_post(url := c.url, body := '{"job":"tick"}'::jsonb,
+         headers := jsonb_build_object('Content-Type', 'application/json', 'Authorization', 'Bearer ' || c.anon, 'apikey', c.anon, 'x-cron-secret', c.secret))
+  from public.cron_config c where c.id = 1;
+$$;
+revoke all on function public.bet_desk_tick() from public, anon, authenticated;
+select cron.unschedule('bet-desk-hourly') where exists (select 1 from cron.job where jobname = 'bet-desk-hourly');
+select cron.schedule('bet-desk-hourly', '31 * * * *', 'select public.bet_desk_tick()');
