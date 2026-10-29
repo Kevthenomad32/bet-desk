@@ -26,8 +26,9 @@ jobs:
       - name: Create the database tables
         run: |
           jq -Rs '{query: .}' supabase/schema.sql > /tmp/q.json
-          curl -sS -f -X POST "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF/database/query" \
-            -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H 'Content-Type: application/json' --data @/tmp/q.json > /dev/null
+          code=$(curl -sS -o /tmp/r.txt -w '%{http_code}' -X POST "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF/database/query" \
+            -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H 'Content-Type: application/json' --data @/tmp/q.json)
+          [ "$code" -lt 400 ] || { echo "::error::Supabase said $code creating tables: $(head -c 600 /tmp/r.txt)"; exit 1; }
           echo "Tables ready."
       - name: Create your app login and turn off public sign-ups
         env:
@@ -39,15 +40,15 @@ jobs:
           EXISTS=$(curl "${H[@]}" "$SUPABASE_URL/auth/v1/admin/users?per_page=1000" | jq --arg e "${APP_EMAIL,,}" '[.users[]|select((.email|ascii_downcase)==$e)]|length')
           if [ "$EXISTS" = 0 ]; then
             jq -n --arg e "$APP_EMAIL" --arg p "$APP_PASSWORD" '{email:$e,password:$p,email_confirm:true}' \
-              | curl "${H[@]}" -f -X POST "$SUPABASE_URL/auth/v1/admin/users" --data @- > /dev/null
+              | curl "${H[@]}" -o /tmp/r.txt -w '%{http_code}' -X POST "$SUPABASE_URL/auth/v1/admin/users" --data @- > /tmp/code.txt
+            [ "$(cat /tmp/code.txt)" -lt 400 ] || { echo "::error::Creating the login failed: $(head -c 400 /tmp/r.txt)"; exit 1; }
             echo "Login created for $APP_EMAIL."
           else
             echo "Login for $APP_EMAIL already exists."
           fi
-          curl -sS -f -X PATCH "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF/config/auth" \
-            -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H 'Content-Type: application/json' \
-            --data '{"disable_signup": true}' > /dev/null
-          echo "Public sign-ups are off."
+          code=$(curl -sS -o /tmp/r.txt -w '%{http_code}' -X PATCH "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF/config/auth" \
+            -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H 'Content-Type: application/json' --data '{"disable_signup": true}')
+          if [ "$code" -lt 400 ]; then echo "Public sign-ups are off."; else echo "::warning::Couldn't turn off public sign-ups ($code: $(head -c 300 /tmp/r.txt)). Turn it off in Supabase: Authentication -> Sign In / Providers -> Allow new users to sign up."; fi
       - uses: supabase/setup-cli@v1
         with:
           version: latest
