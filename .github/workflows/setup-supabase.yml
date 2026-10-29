@@ -1,4 +1,5 @@
 name: Set up Supabase
+# Re-run it any time a key changes (or push a change to this file).
 
 # One click after the secrets are in: creates the database tables, your app login, the three server functions
 # and their keys, then publishes the app and starts loading this season's games.
