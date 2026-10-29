@@ -108,7 +108,7 @@ def at(y, m, d, h):
 def test_schedule():
     assert due_now(at(2026, 10, 28, 9)) == ['injuries', 'nba_daily', 'nfl_weekly', 'pregame']       # Wed 9:31
     assert due_now(at(2026, 10, 29, 9)) == ['injuries', 'nba_daily', 'nfl_lines', 'pregame']        # Thu
-    assert 'recap' in due_now(at(2026, 11, 3, 9))                                                    # Tue
+    assert 'recap' in due_now(at(2026, 11, 2, 9)) and 'recap' not in due_now(at(2026, 11, 3, 9))  # Mon, not Tue
     assert 'cfb_lines' in due_now(at(2026, 10, 30, 9))                                               # Fri
     assert due_now(at(2026, 10, 29, 0)) == ['settle'] and due_now(at(2026, 10, 29, 2)) == ['settle']
     assert due_now(at(2026, 10, 29, 4)) == ['closing']

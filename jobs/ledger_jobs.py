@@ -238,7 +238,7 @@ def closing(db):
     return f"{len(ups)} picks and {nb} bets given CLV" + (f", avg {sum(vals) / len(vals):+.1f}" if vals else '') + (f"; SportsGameOdds {u.get('used')}/{u.get('max')}" if u else '')
 
 
-# ---------- weekly recap (Tuesday) ----------
+# ---------- weekly recap (Monday) ----------
 def _net(b):
     d = dec(amer(b.get('odds'))) or 1
     risk = 0 if b.get('bonus') else (b.get('stake') or 0)

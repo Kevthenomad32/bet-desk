@@ -64,7 +64,7 @@ The **Bet Desk jobs** workflow runs by itself every hour at :31 and does what's 
 | 9:31am Fri, Sat | College football lines |
 | 12:31am and 2:31am | Settle your bets, grade picks and logged props |
 | 4:31am | Closing lines (CLV) + SportsGameOdds usage |
-| 9:31am Tue | Weekly recap |
+| 9:31am Mon | Weekly recap (last Monday–Sunday) |
 | Sundays hourly 11am–11pm | Live progress on open bets, "one leg away" alert |
 
 You can run any job by hand: **Actions → Bet Desk jobs → Run workflow** (`backfill` reloads the season).

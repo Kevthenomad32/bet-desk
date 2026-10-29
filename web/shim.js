@@ -238,7 +238,7 @@ const JOBS = [
   ['injuries', 'Bet Desk: injury report refresh', 'daily 9:31am + before games'],
   ['settle', 'Bet Desk: settle bets', '12:31am and 2:31am'],
   ['closing', 'Bet Desk: closing lines + status', '4:31am'],
-  ['recap', 'Bet Desk: weekly recap', 'Tue 9:31am'],
+  ['recap', 'Bet Desk: weekly recap', 'Mon 9:31am'],
   ['live', 'Bet Desk: Sunday live updates', 'Sun hourly 11am–11pm']];
 async function listTriggers() {
   const { data } = await sb.from('job_runs').select('job,started_at,finished_at,ok,summary').order('started_at', { ascending: false }).limit(300);

@@ -29,7 +29,7 @@ def due_now(t=None):
             jobs.append('nfl_weekly')
         elif wd in (3, 6, 0):
             jobs.append('nfl_lines')
-        if wd == 1:
+        if wd == 0:  # Monday: covers last Monday-Sunday (Sunday night games settle overnight first)
             jobs.append('recap')
         if wd in (4, 5):
             jobs.append('cfb_lines')
