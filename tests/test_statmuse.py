@@ -74,7 +74,7 @@ def test_session_and_key_header(fake):
 
 def test_injuries(fake):
     assert sm.injuries('nba') == [{'name': 'Devin Carter', 'team': 'Celtics', 'status': 'Out', 'desc': 'Illness'}]
-    nfl = sm.injuries('nfl', week=8)
+    nfl = sm.injuries('nfl', week=9)  # StatMuse still on week 8: its latest week is used
     assert [(x['name'], x['status']) for x in nfl] == [('Kyle Monangai', 'Out'), ('Jack Sanborn', 'DNP')]  # full-practice and old-week rows dropped
     assert nfl[0]['desc'] == 'Thumb, Toe' and nfl[0]['team'] == 'Bears'
 

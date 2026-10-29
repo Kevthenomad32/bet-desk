@@ -158,8 +158,12 @@ def injuries(lg, week=None):
                 out.append({'name': x.get('player_name', ''), 'team': t, 'status': x.get('status') or '', 'desc': x.get('description') or ''})
         return out
     out = []
-    for x in rows(call('get_player_injuries', league='nfl', team_ids=NFL_TEAM_IDS)):
-        if week and x.get('week') not in (None, week):
+    rs = rows(call('get_player_injuries', league='nfl', team_ids=NFL_TEAM_IDS))
+    # StatMuse's report trails the schedule until the new week's practice reports come out (Wed/Thu),
+    # so keep the latest week it has rather than requiring the slate's week.
+    latest = max([x['week'] for x in rs if isinstance(x.get('week'), int)] or [None]) if rs else None
+    for x in rs:
+        if latest and x.get('week') not in (None, latest):
             continue
         gs, ps = x.get('game_status'), x.get('practice_status')
         if not gs and (ps or '').lower() in ('', 'full', 'full participation in practice'):
