@@ -83,6 +83,12 @@ def pname(p, pid):
     return ' '.join(w.capitalize() if len(w) > 2 or not w.isalpha() else w.upper() for w in parts) or str(pid)
 
 
+def tname(t):
+    """Team display name: 'medium' (Packers), else short/long/id (college teams sometimes only have some of these)."""
+    n = (t or {}).get('names') or {}
+    return n.get('medium') or n.get('short') or n.get('long') or str((t or {}).get('teamID', '')).replace('_NCAAF', '').replace('_', ' ').title()
+
+
 def build(lg, events, players):
     """Odds doc {source, updated, games, props} from SportsGameOdds events and the player-averages list."""
     num = lambda x: float(x) if x not in (None, '') else None
@@ -106,12 +112,12 @@ def build(lg, events, players):
         if st.get('started') or st.get('cancelled'):
             continue
         T = {s: e['teams'][s] for s in ('home', 'away')}
-        nk = {T[s]['teamID']: T[s]['names']['medium'] for s in T}
+        nk = {T[s]['teamID']: tname(T[s]) for s in T}
         O = e['odds']; g = lambda k: O.get(k, {})
         sp, spa, ou = g('points-home-game-sp-home'), g('points-away-game-sp-away'), g('points-all-game-ou-over')
         ouu = O.get(ou.get('opposingOddID', ''), {})
         mh, ma = g('points-home-game-ml-home'), g('points-away-game-ml-away')
-        games.append({'away': T['away']['names']['medium'], 'home': T['home']['names']['medium'], 'start': st.get('startsAt'),
+        games.append({'away': tname(T['away']), 'home': tname(T['home']), 'start': st.get('startsAt'),
                       'spread': {'home': num(sp.get('bookSpread')), 'homeOpen': num(sp.get('openBookSpread')), 'homeOdds': sp.get('bookOdds'), 'awayOdds': spa.get('bookOdds')},
                       'total': {'line': num(ou.get('bookOverUnder')), 'open': num(ou.get('openBookOverUnder')), 'overOdds': ou.get('bookOdds'), 'underOdds': ouu.get('bookOdds')},
                       'ml': {'home': mh.get('bookOdds'), 'away': ma.get('bookOdds'), 'homeOpen': mh.get('openBookOdds'), 'awayOpen': ma.get('openBookOdds')}})

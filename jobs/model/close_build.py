@@ -29,7 +29,7 @@ def closing_lines(events_by_file):
     for evs in events_by_file:
         for e in evs:
             if not e['status'].get('started'): continue
-            lg=e.get('leagueID','').lower(); T={s:e['teams'][s]['names']['medium'] for s in ('home','away')}; game=f"{T['away']} @ {T['home']}"
+            lg=e.get('leagueID','').lower(); T={s:((e['teams'][s].get('names') or {}).get('medium') or (e['teams'][s].get('names') or {}).get('long') or e['teams'][s].get('teamID','')) for s in ('home','away')}; game=f"{T['away']} @ {T['home']}"
             O=e['odds']
             for k,o in O.items():
                 if o.get('betTypeID')!='ou' or o.get('sideID')!='over' or o.get('periodID')!='game': continue
