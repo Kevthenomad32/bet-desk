@@ -16,8 +16,15 @@ def load(f):
     except Exception: return {}
     return j['data'] if isinstance(j,dict) and isinstance(j.get('data'),dict) else j
 
-DEFAULT_W = {'nba': {'wRole': 0.6, 'wScript': 1.0, 'wMatch': 1.0, 'wModel': 0.3, 'wOpt': 0.5, 'wOpp': 1.0},
-             'nfl': {'wRole': 0.5, 'wScript': 1.0, 'wMatch': 1.0, 'wModel': 0.3, 'wOpt': 0.5}}
+DEFAULT_W = {'nba': {'wRole': 0.6, 'wScript': 1.0, 'wMatch': 1.0, 'wModel': 0.3, 'wOpt': 0.5, 'wOpp': 1.0, 'under': 0.02, 'off': ('pts',)},
+             'nfl': {'wRole': 0.5, 'wScript': 1.0, 'wMatch': 1.0, 'wModel': 0.3, 'wOpt': 0.5, 'under': 0.0, 'off': ()}}
+# 'off': markets where the model is ignored and the book's price is used as-is (NBA points: raw model hit 45.8% on 716 graded props, Nov 1 2026).
+# 'under': shift toward the under (NBA overs hit 45.8% vs the book's 49.5%; 0.02 picked on Oct props, held up the week of Oct 26).
+
+def blend(pm, pb, W, market):
+    """Final over chance: the book's no-vig chance nudged toward the model, minus the league's under correction."""
+    w = 0.0 if market in W.get('off', ()) else W['wModel']
+    return clamp(pb + w * (pm - pb) - W.get('under', 0.0), .01, .99)
 
 MAX_GAP = 0.22  # model vs book win chance gap above which the model is probably missing news (role change, injury): no pick
 
@@ -138,7 +145,7 @@ def evaluate(p, comps_exp, W):
     line = p['line']; pm = p_over(p['market'], comps_exp, line)
     if pm is None: return None
     pb = book_over(p['pinO'], p['pinU']) if p.get('pinO') and p.get('pinU') else book_over(p.get('odds'), p.get('uodds'))
-    pf = clamp(pb + W['wModel'] * (pm - pb), .01, .99)
+    pf = blend(pm, pb, W, p['market'])
     # a missing price is estimated from the book's fair chance plus a normal ~4.5% margin (never assume -110 on a lopsided line)
     do = dec(p.get('odds')) or 1 / (pb * 1.045); du = dec(p.get('uodds')) or 1 / ((1 - pb) * 1.045)
     ev_o = pf * (do - 1) - (1 - pf); ev_u = (1 - pf) * (du - 1) - pf
@@ -281,7 +288,7 @@ def log_lik(picks, W):
         if x.get('status') not in ('won', 'lost') or not x.get('comps'): continue
         e = project(x['comps'], W); pm = p_over(x['market'], e, x['line'])
         if pm is None: continue
-        pb = x.get('pBook', 0.5); pf = clamp(pb + W['wModel'] * (pm - pb), .01, .99)
+        pb = x.get('pBook', 0.5); pf = blend(pm, pb, W, x['market'])
         ps = pf if x['side'] == 'over' else 1 - pf
         ll += math.log(ps if x['status'] == 'won' else 1 - ps); n += 1
     return ll, n

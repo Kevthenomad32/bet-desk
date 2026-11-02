@@ -1046,7 +1046,9 @@ $('#pf-team').replaceChildren(...TEAMS.map(t=>el('option',{value:t,text:t})));
 const clampN=(x,lo,hi)=>Math.max(lo,Math.min(hi,x));
 const numN=x=>{ if(x==null||x==='') return null; const n=parseFloat(x); return isNaN(n)?null:n; };
 const key2N=n=>{ const w=n.split(' '); return w.length>=2?w[0].slice(0,3)+' '+w.at(-1):n; };
-const DEFAULT_W={nba:{wRole:.6,wScript:1,wMatch:1,wModel:.3,wOpt:.5,wOpp:1}, nfl:{wRole:.5,wScript:1,wMatch:1,wModel:.3,wOpt:.5}};
+const DEFAULT_W={nba:{wRole:.6,wScript:1,wMatch:1,wModel:.3,wOpt:.5,wOpp:1,under:.02,off:['pts']}, nfl:{wRole:.5,wScript:1,wMatch:1,wModel:.3,wOpt:.5,under:0,off:[]}};
+// off: markets where the model is ignored (NBA points); under: shift toward the under (NBA overs run cold). Same as jobs/model/picks_build.py.
+const blendN=(pm,pb,W,mk)=>clampN(pb+((W.off||[]).includes(mk)?0:W.wModel)*(pm-pb)-(W.under||0),.01,.99);
 // ---------- Optimal data (viewer's Optimal connector): Hard Rock FL line + price, Pinnacle no-vig anchor, Optimal projections ----------
 const OPT_SQL="WITH ev AS (SELECT id, away_display, home_display, start_date FROM events WHERE league='LEAGUE' AND start_date >= 'START' AND start_date < 'END'),\npo AS (SELECT event_id, player_id, prop_type, odds FROM player_odds WHERE event_id IN (SELECT id FROM ev) AND prop_type IN ('points','rebounds','assists','threePointersMade','pointsAssistsRebounds','passingYards','rushingYards','receivingYards')),\nel AS (SELECT po.event_id, po.player_id, po.prop_type, b.key bk, (s->>'line')::numeric l, s->>'offer' sd, (s->>'odds')::int od FROM po, LATERAL jsonb_each(po.odds->'oddsBySportsbook') b, LATERAL jsonb_array_elements(b.value) s),\npr AS (SELECT event_id, player_id, prop_type, bk, l, max(od) FILTER (WHERE sd='over') o, max(od) FILTER (WHERE sd='under') u FROM el WHERE bk IN ('Hard Rock Bet (FL)','Pinnacle') GROUP BY 1,2,3,4,5 HAVING max(od) FILTER (WHERE sd='over') IS NOT NULL AND max(od) FILTER (WHERE sd='under') IS NOT NULL),\nim AS (SELECT *, abs((CASE WHEN o>0 THEN 100.0/(o+100) ELSE -o/(100.0-o) END)-(CASE WHEN u>0 THEN 100.0/(u+100) ELSE -u/(100.0-u) END)) d FROM pr),\nmn AS (SELECT DISTINCT ON (event_id, player_id, prop_type, bk) event_id, player_id, prop_type, bk, l, o, u FROM im ORDER BY event_id, player_id, prop_type, bk, d),\nhr AS (SELECT * FROM mn WHERE bk='Hard Rock Bet (FL)'), pn AS (SELECT * FROM mn WHERE bk='Pinnacle'),\nbest AS (SELECT el.event_id, el.player_id, el.prop_type, el.sd, max(el.od) od FROM el JOIN hr USING (event_id, player_id, prop_type) WHERE el.l=hr.l AND el.bk NOT LIKE 'Hard Rock%' AND el.bk IN ('DraftKings','Fanduel','Caesars','BetMGM','Fanatics','bet365','BetRivers','Pinnacle','theScore','Bally Bet','betPARX','Circa','BetOnline','Fliff','SugarHouse') GROUP BY 1,2,3,4),\npj AS (SELECT pp.event_id, pp.player_id, pi->>'propType' prop_type, ((pi->>'p25')::numeric+(pi->>'p50')::numeric+(pi->>'p75')::numeric)/3 m FROM player_projections pp, LATERAL jsonb_array_elements(pp.projections->'projections') pi WHERE pp.event_id IN (SELECT id FROM ev))\nSELECT ev.away_display a, ev.home_display h, ev.start_date s, string_agg(concat_ws('|', p.full_name, hr.prop_type, hr.l, hr.o, hr.u, coalesce(pn.l::text,''), coalesce(pn.o::text,''), coalesce(pn.u::text,''), coalesce(round(pj.m,2)::text,''), coalesce(bo.od::text,''), coalesce(bu.od::text,'')), ';') r\nFROM hr JOIN ev ON ev.id=hr.event_id JOIN players p ON p.id=hr.player_id\nLEFT JOIN pn ON pn.event_id=hr.event_id AND pn.player_id=hr.player_id AND pn.prop_type=hr.prop_type\nLEFT JOIN pj ON pj.event_id=hr.event_id AND pj.player_id=hr.player_id AND pj.prop_type=hr.prop_type\nLEFT JOIN best bo ON bo.event_id=hr.event_id AND bo.player_id=hr.player_id AND bo.prop_type=hr.prop_type AND bo.sd='over'\nLEFT JOIN best bu ON bu.event_id=hr.event_id AND bu.player_id=hr.player_id AND bu.prop_type=hr.prop_type AND bu.sd='under'\nGROUP BY 1,2,3 ORDER BY 3";
 const OPT_MKT={points:'pts',rebounds:'reb',assists:'ast',threePointersMade:'fg3',pointsAssistsRebounds:'pra',passingYards:'pass',rushingYards:'rush',receivingYards:'rec'};
@@ -1076,7 +1078,7 @@ const decN=o=>{ o=amerN(o); return o==null?null:(o>0?1+o/100:1+100/-o); };
 function bookOver(o,u){ const po=impN(o), pu=impN(u); if(po!=null&&pu!=null) return po/(po+pu); if(po!=null) return clampN(po/1.045,.02,.98); if(pu!=null) return clampN(1-pu/1.045,.02,.98); return .5; }
 function evaluateN(p, exp, W){
   const pm=modelOver(p.market, exp, p.line); if(pm==null) return null;
-  const pb=(p.pinO&&p.pinU)?bookOver(p.pinO,p.pinU):bookOver(p.odds,p.uodds), pf=clampN(pb+W.wModel*(pm-pb),.01,.99);
+  const pb=(p.pinO&&p.pinU)?bookOver(p.pinO,p.pinU):bookOver(p.odds,p.uodds), pf=blendN(pm,pb,W,p.market);
   const dO=decN(p.odds)||1/(pb*1.045), dU=decN(p.uodds)||1/((1-pb)*1.045);
   const evO=pf*(dO-1)-(1-pf), evU=(1-pf)*(dU-1)-pf, side=evO>=evU?'over':'under';
   return {pModel:pm, pBook:pb, pOver:pf, side, ev:Math.max(evO,evU), pWin:side==='over'?pf:1-pf};
@@ -1156,9 +1158,9 @@ const TUNE_MIN=40, TUNE_MIN_SHADOW=300;
 // every prop the model evaluated before tip (the shadow log), once graded
 const shadowRows=lg=>(S.shadow||[]).filter(d=>d.league===lg.toUpperCase()).flatMap(d=>(d.rows||[]).filter(r=>r.result!=null&&r.result!==r.line&&r.comps));
 function logLikShadow(rows, W){ let ll=0,n=0; for(const r of rows){ const e=projectN(r.comps,W), pm=modelOver(r.market,e,r.line); if(pm==null) continue;
-  const pf=clampN(r.pBook+W.wModel*(pm-r.pBook),.01,.99); ll+=Math.log(r.result>r.line?pf:1-pf); n++; } return {ll,n}; }
+  const pf=blendN(pm,r.pBook,W,r.market); ll+=Math.log(r.result>r.line?pf:1-pf); n++; } return {ll,n}; }
 function logLik(picks, W){ let ll=0,n=0; for(const x of picks){ if(!['won','lost'].includes(x.status)||!x.comps) continue; const e=projectN(x.comps,W), pm=modelOver(x.market,e,x.line); if(pm==null) continue;
-  const pb=x.pBook??.5, pf=clampN(pb+W.wModel*(pm-pb),.01,.99), ps=x.side==='over'?pf:1-pf; ll+=Math.log(x.status==='won'?ps:1-ps); n++; } return {ll,n}; }
+  const pb=x.pBook??.5, pf=blendN(pm,pb,W,x.market), ps=x.side==='over'?pf:1-pf; ll+=Math.log(x.status==='won'?ps:1-ps); n++; } return {ll,n}; }
 function tuneStep(lg){
   const picks=S.picks.filter(x=>x.league===lg.toUpperCase()&&x.comps&&['won','lost'].includes(x.status)), sh=shadowRows(lg);
   const both=W=>{ const a=logLik(picks,W), b=logLikShadow(sh,W); return {ll:a.ll+b.ll, n:a.n+b.n, np:a.n, ns:b.n}; };
@@ -1340,7 +1342,7 @@ function legProb(x){
   const q=r.p, W=weightsFor(lg), pbMain=r.e.pBook;
   const pb = x.line===q.line ? pbMain : modelOver(q.market, solveMean(q.market,q.line,pbMain), x.line);  // book's fair chance moved to an alt line
   const pm=modelOver(q.market, r.exp, x.line); if(pb==null||pm==null) return null;
-  const pf=clampN(pb+W.wModel*(pm-pb),.01,.99); return x.side==='over'?pf:1-pf;
+  const pf=blendN(pm,pb,W,x.market); return x.side==='over'?pf:1-pf;
 }
 function legCorr(a,b){
   const key=[a.market,b.market].sort().join('|'), sgn=(a.side==='over'?1:-1)*(b.side==='over'?1:-1);
