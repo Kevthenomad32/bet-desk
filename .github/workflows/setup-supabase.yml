@@ -65,7 +65,15 @@ jobs:
         with:
           version: latest
       - name: Deploy the server functions
-        run: for f in espn claude jobs statmuse; do supabase functions deploy "$f" --project-ref "$SUPABASE_PROJECT_REF" --use-api; done
+        continue-on-error: true  # a deploy hiccup shouldn't block the keys and the app publish below
+        run: |
+          failed=""
+          for f in espn claude jobs statmuse; do
+            supabase functions deploy "$f" --project-ref "$SUPABASE_PROJECT_REF" --use-api \
+              || { sleep 10; supabase functions deploy "$f" --project-ref "$SUPABASE_PROJECT_REF" --use-api; } \
+              || failed="$failed $f"
+          done
+          if [ -n "$failed" ]; then echo "::warning::Couldn't deploy:$failed (the previous version keeps running). Run Set up Supabase again or ask Claude."; exit 1; fi
       - name: Give the functions their keys
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}

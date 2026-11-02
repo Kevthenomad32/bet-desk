@@ -231,7 +231,7 @@ function sidePlayers(lg, block) {
       const id = a.athlete?.id || a.athlete?.displayName; if (!by.has(id)) by.set(id, { name: a.athlete?.displayName || '', status: '' });
       const row = by.get(id);
       if (a.didNotPlay || !(a.stats || []).length) { if (lg === 'nba') row.status = 'DNP'; continue; }
-      keys.forEach((k, i) => { const col = map[k]; if (!col) return; const v = String(a.stats[i] ?? '').split('-')[0]; row[col] = v === '' || v === '--' ? null : Number(v); });
+      keys.forEach((k, i) => { const col = map[k]; if (!col) return; const raw = String(a.stats[i] ?? ''), v = /^-?\d+(\.\d+)?$/.test(raw) ? raw : raw.split('-')[0]; row[col] = v === '' || v === '--' ? null : Number(v); });
     }
   }
   return { players: { columns: cols, rows: [...by.values()].map(r => cols.map(c => r[c] ?? (c === 'status' ? '' : null))) } };

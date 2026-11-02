@@ -38,6 +38,11 @@ def get(path, **params):
 
 
 def num(v):
+    """'12' -> 12, '-3' -> -3 (negative rushing yards), '5-12' -> 5."""
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        pass
     try:
         return float(str(v).split('-')[0])
     except (TypeError, ValueError):

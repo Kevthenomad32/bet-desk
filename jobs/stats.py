@@ -7,6 +7,11 @@ r1 = lambda x: None if x is None else round(x, 1)
 
 
 def _f(v):
+    """'288' -> 288, '-2' -> -2 (net passing can be negative), '5-12' -> 5 (made-attempted)."""
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        pass
     try:
         return float(str(v).split('-')[0])
     except (TypeError, ValueError):
@@ -126,9 +131,10 @@ def nfl_defense_doc(games):
             a = acc[team]
             a['gp'] += 1
             a['pts'] += (g['away_score'] if side == 'home' else g['home_score']) or 0
-            a['pass'] += _f(s.get('netPassingYards')) if s.get('netPassingYards') is not None else tot('pass')
-            a['rush'] += _f(s.get('rushingYards')) if s.get('rushingYards') is not None else tot('rush')
-            a['tot'] += _f(s.get('totalYards')) if s.get('totalYards') is not None else tot('pass') + tot('rush')
+            num = lambda key, fallback: (_f(s.get(key)) if _f(s.get(key)) is not None else fallback)  # box stat, else summed player stats
+            a['pass'] += num('netPassingYards', tot('pass'))
+            a['rush'] += num('rushingYards', tot('rush'))
+            a['tot'] += num('totalYards', tot('pass') + tot('rush'))
             a['passTd'] += tot('passTd'); a['rushTd'] += tot('rushTd')
             m, at = _ma(s.get('thirdDownEff'))
             if at:
