@@ -100,5 +100,14 @@ rep("el('td',{class:'small num',text:t.next_run_at?new Date(t.next_run_at).toLoc
 rep("Green = went over the line, red = under. Includes last season, so early games may be with a different team.",
     "Green = went over the line, red = under. Only games from this season.")
 
+# --- probability calibration (doc 'calibration', refit nightly by the settle job): same correction the hourly model uses ---
+rep("function evaluateN(p, exp, W){\n  const pm=modelOver(p.market, exp, p.line); if(pm==null) return null;\n  const pb=(p.pinO&&p.pinU)?bookOver(p.pinO,p.pinU):bookOver(p.odds,p.uodds), pf=blendN(pm,pb,W,p.market);",
+    "function calP(p, market){ const c=S.cal?.markets?.[market]; if(!c||c.a==null||p==null) return p; const q=Math.min(.99,Math.max(.01,p)), z=c.a*Math.log(q/(1-q))+c.b; return Math.min(.99,Math.max(.01,1/(1+Math.exp(-z)))); }\n"
+    "function evaluateN(p, exp, W){\n  const pm=modelOver(p.market, exp, p.line); if(pm==null) return null;\n  const pb=(p.pinO&&p.pinU)?bookOver(p.pinO,p.pinU):bookOver(p.odds,p.uodds), pfRaw=blendN(pm,pb,W,p.market), pf=calP(pfRaw,p.market);")
+rep("  return {pModel:pm, pBook:pb, pOver:pf, side, ev:Math.max(evO,evU), pWin:side==='over'?pf:1-pf};",
+    "  return {pModel:pm, pBook:pb, pOver:pf, pOverRaw:pfRaw, side, ev:Math.max(evO,evU), pWin:side==='over'?pf:1-pf};")
+rep("  db.doc(S.base+'/nbaInjuries').onSnapshot(",
+    "  db.doc(S.base+'/calibration').onSnapshot(snap=>{ S.cal = snap.exists?snap.data():null; try{ renderNba(); renderSixty(); }catch(e){} }, ()=>{});\n  db.doc(S.base+'/nbaInjuries').onSnapshot(")
+
 open(out, 'w', encoding='utf-8').write(s)
 print('built', out, len(s), 'bytes')

@@ -8,14 +8,14 @@ import datetime as dt
 import sys
 import traceback
 
-from . import data_jobs, espn, ledger_jobs, model_jobs, stats
+from . import calibrate, data_jobs, espn, ledger_jobs, model_jobs, stats
 from .common import DB, now_et, now_utc
 
 JOBS = {
     'pregame': model_jobs.pregame, 'nbagl': model_jobs.nbagl,
     'nba_daily': data_jobs.nba_daily, 'nfl_weekly': data_jobs.nfl_weekly, 'nfl_lines': lambda db: data_jobs.nfl_lines(db),
     'injuries': data_jobs.injuries_job, 'cfb_lines': data_jobs.cfb_lines,
-    'settle': ledger_jobs.settle, 'closing': ledger_jobs.closing, 'recap': ledger_jobs.recap, 'live': ledger_jobs.live,
+    'calibrate': calibrate.run, 'settle': ledger_jobs.settle, 'closing': ledger_jobs.closing, 'recap': ledger_jobs.recap, 'live': ledger_jobs.live,
 }
 
 

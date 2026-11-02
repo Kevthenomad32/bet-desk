@@ -140,19 +140,30 @@ def apply_opt(p, o):
     q['bestO'], q['bestU'] = o.get('bo'), o.get('bu')
     return q
 
+CAL = {}  # nightly calibration (doc 'calibration'), passed in the WEIGHTS file under 'cal'
+
+
+def calibrated(p, market):
+    """logit(p) -> a*logit(p)+b for markets the settle job has fitted; unchanged otherwise."""
+    c = (CAL.get('markets') or {}).get(market) or {}
+    if 'a' not in c: return p
+    q = clamp(p, .01, .99); z = c['a'] * math.log(q / (1 - q)) + c['b']
+    return clamp(1 / (1 + math.exp(-z)), .01, .99)
+
+
 def evaluate(p, comps_exp, W):
     """Win probability and EV for both sides. comps_exp = projected mean. The 'book' chance is Pinnacle's no-vig price at this line when available."""
     line = p['line']; pm = p_over(p['market'], comps_exp, line)
     if pm is None: return None
     pb = book_over(p['pinO'], p['pinU']) if p.get('pinO') and p.get('pinU') else book_over(p.get('odds'), p.get('uodds'))
-    pf = blend(pm, pb, W, p['market'])
+    pf_raw = blend(pm, pb, W, p['market']); pf = calibrated(pf_raw, p['market'])
     # a missing price is estimated from the book's fair chance plus a normal ~4.5% margin (never assume -110 on a lopsided line)
     do = dec(p.get('odds')) or 1 / (pb * 1.045); du = dec(p.get('uodds')) or 1 / ((1 - pb) * 1.045)
     ev_o = pf * (do - 1) - (1 - pf); ev_u = (1 - pf) * (du - 1) - pf
     side = 'over' if pf >= 0.5 else 'under'  # the side more likely to hit
     ds = do if side == 'over' else du
     price = (p.get('odds') if side == 'over' else p.get('uodds')) or ('%+d' % round((ds - 1) * 100) if ds >= 2 else '%d' % round(-100 / (ds - 1)))
-    return {'pModel': pm, 'pBook': pb, 'pOver': pf, 'side': side, 'ev': ev_o if side == 'over' else ev_u, 'pWin': pf if side == 'over' else 1 - pf, 'price': str(price)}
+    return {'pModel': pm, 'pBook': pb, 'pOver': pf, 'pOverRaw': pf_raw, 'side': side, 'ev': ev_o if side == 'over' else ev_u, 'pWin': pf if side == 'over' else 1 - pf, 'price': str(price)}
 
 # ---------- NBA ----------
 NBA_PARTS = {'pts': ['pts'], 'reb': ['reb'], 'ast': ['ast'], 'fg3': ['fg3'], 'pra': ['pts', 'reb', 'ast']}
@@ -298,7 +309,7 @@ if __name__ == '__main__':
     try: OPT=parse_opt(json.load(open(optf)))
     except Exception: OPT={}
     odds,teams,inj=load(oddf),load(teamf).get('teams',{}),load(injf); pdoc=load(plf); look=player_index(pdoc.get('players',[]))
-    W=weights(load(wf),lg); b2b=load(slf).get('b2b',[]) if lg=='nba' else []; pool=pdoc.get('pool',[])
+    W=weights(load(wf),lg); CAL=(load(wf) or {}).get('cal') or {}; b2b=load(slf).get('b2b',[]) if lg=='nba' else []; pool=pdoc.get('pool',[])
     tz=zoneinfo.ZoneInfo('America/New_York'); now=datetime.datetime.now(datetime.timezone.utc); et=now.astimezone(tz)
     P=lambda s: datetime.datetime.fromisoformat(s.replace('Z','+00:00'))
     WA,WB=P(wa),P(wb)
@@ -338,7 +349,7 @@ if __name__ == '__main__':
             sid=f"{lg}-{day}-"+re.sub(r'[^a-z0-9]+','-',norm(g['away'])+'-at-'+norm(g['home'])).strip('-')
             sh=shadow.setdefault(sid,{'date':day,'league':lg.upper(),'game':f"{g['away']} @ {g['home']}",'gameStart':st,'model':6,'createdAt':now.strftime('%Y-%m-%dT%H:%M:%SZ'),'graded':False,'rows':[]})
             sh['rows'].append({'player':p['player'],'team':p['team'],'market':p['market'],'line':p['line'],'odds':p.get('odds'),'uodds':p.get('uodds'),'book':p.get('book','consensus'),
-                'pBook':round(e['pBook'],4),'pModel':round(e['pModel'],4),'pOver':round(e['pOver'],4),'exp':round(exp,2),'comps':ctx})
+                'pBook':round(e['pBook'],4),'pModel':round(e['pModel'],4),'pOver':round(e['pOver'],4),'pOverRaw':round(e['pOverRaw'],4),'exp':round(exp,2),'comps':ctx})
         if n in usedp: continue  # already has a locked pick today/this week
         if not e or e['pWin']<0.55 or abs(e['pModel']-e['pBook'])>MAX_GAP: continue  # ranked by win chance; 55% minimum
         rows.append(dict(p,opp=o,exp=round(exp,1),edge=round(exp-l,1),rel=round((exp-l)/max(exp,0.5 if lg=='nba' else 1),3),gameStart=st,why='; '.join(ctx['why']),ctx=ctx,**e))

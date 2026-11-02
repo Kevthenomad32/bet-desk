@@ -589,6 +589,7 @@ async function boot(){
   db.doc(S.base+'/ledger').collection('cfb').onSnapshot(snap=>{ S.cfb = snap.docs.map(d=>({id:d.id, ...d.data()})); S.cfbLoaded=true; renderCfb(); cfbLockDue().catch(()=>{}); if(!$('#tab-cfb').hidden) maybeGradeCfb(false); }, ()=>{});
   db.doc(S.base+'/ledger').collection('nbagl').onSnapshot(snap=>{ S.nbagl = snap.docs.map(d=>({id:d.id, ...d.data()})); S.nbaglLoaded=true; try{ renderNbaGl(); renderSixty(); }catch(e){} nbaGlLockDue().catch(()=>{}); maybeGradeNbaGl(); }, ()=>{});
   db.doc(S.base+'/ledger').collection('shadow').onSnapshot(snap=>{ S.shadow = snap.docs.map(d=>({id:d.id, ...d.data()})); renderPicks(); try{ renderSixty(); }catch(e){} maybeGradeShadow(); }, ()=>{});
+  db.doc(S.base+'/calibration').onSnapshot(snap=>{ S.cal = snap.exists?snap.data():null; try{ renderNba(); renderSixty(); }catch(e){} }, ()=>{});
   db.doc(S.base+'/nbaInjuries').onSnapshot(snap=>{ S.nbaInjRaw = snap.exists?snap.data():null; S.nbaInj=mergeInj(S.nbaInjRaw,S.injOv); renderNba(); try{ renderSixty(); }catch(e){} }, ()=>{});
   db.doc(S.base+'/injOverride').onSnapshot(snap=>{ S.injOv = snap.exists?snap.data():null; S.nbaInj=mergeInj(S.nbaInjRaw,S.injOv); renderNba(); try{ renderSixty(); }catch(e){} }, ()=>{});
   db.doc(S.base+'/nflInjuries').onSnapshot(snap=>{ S.nflInj = snap.exists?snap.data():null; renderProps(); renderMatchups(); }, ()=>{});
@@ -1076,12 +1077,13 @@ const amerN=x=>{ const v=parseInt(String(x??'').replace('+',''),10); return isNa
 const impN=o=>{ o=amerN(o); return o==null?null:(o>0?100/(o+100):-o/(-o+100)); };
 const decN=o=>{ o=amerN(o); return o==null?null:(o>0?1+o/100:1+100/-o); };
 function bookOver(o,u){ const po=impN(o), pu=impN(u); if(po!=null&&pu!=null) return po/(po+pu); if(po!=null) return clampN(po/1.045,.02,.98); if(pu!=null) return clampN(1-pu/1.045,.02,.98); return .5; }
+function calP(p, market){ const c=S.cal?.markets?.[market]; if(!c||c.a==null||p==null) return p; const q=Math.min(.99,Math.max(.01,p)), z=c.a*Math.log(q/(1-q))+c.b; return Math.min(.99,Math.max(.01,1/(1+Math.exp(-z)))); }
 function evaluateN(p, exp, W){
   const pm=modelOver(p.market, exp, p.line); if(pm==null) return null;
-  const pb=(p.pinO&&p.pinU)?bookOver(p.pinO,p.pinU):bookOver(p.odds,p.uodds), pf=blendN(pm,pb,W,p.market);
+  const pb=(p.pinO&&p.pinU)?bookOver(p.pinO,p.pinU):bookOver(p.odds,p.uodds), pfRaw=blendN(pm,pb,W,p.market), pf=calP(pfRaw,p.market);
   const dO=decN(p.odds)||1/(pb*1.045), dU=decN(p.uodds)||1/((1-pb)*1.045);
   const evO=pf*(dO-1)-(1-pf), evU=(1-pf)*(dU-1)-pf, side=evO>=evU?'over':'under';
-  return {pModel:pm, pBook:pb, pOver:pf, side, ev:Math.max(evO,evU), pWin:side==='over'?pf:1-pf};
+  return {pModel:pm, pBook:pb, pOver:pf, pOverRaw:pfRaw, side, ev:Math.max(evO,evU), pWin:side==='over'?pf:1-pf};
 }
 const NBA_PARTS={pts:['pts'],reb:['reb'],ast:['ast'],fg3:['fg3'],pra:['pts','reb','ast']};
 const STAT_EXP={pts:['iF',1,0],ast:['iF',.8,.2],fg3:['iF',.5,.5],reb:['pace',.4,.6]};

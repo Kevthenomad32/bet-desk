@@ -27,7 +27,10 @@ def pregame(db):
             continue
         pdoc = db.get(f'{lg}Players') or {}
         odds = old
+        ok, why = sgo.guard(db, 'pregame')
         try:
+            if not ok:
+                raise RuntimeError(why)
             evs = sgo.fetch(LEAGUE, a, b)
             if evs:
                 odds = sgo.merge(old, sgo.build(lg, evs, pdoc.get('players', [])))
@@ -40,7 +43,7 @@ def pregame(db):
         with tempfile.TemporaryDirectory() as W:
             f = lambda n: os.path.join(W, n)
             _dump(f('odds.json'), odds); _dump(f('teams.json'), db.get('nba' if lg == 'nba' else 'defense')); _dump(f('players.json'), pdoc)
-            _dump(f('inj.json'), inj); _dump(f('weights.json'), db.get('modelWeights')); _dump(f('slate.json'), db.get('nbaSlate' if lg == 'nba' else 'slate'))
+            _dump(f('inj.json'), inj); _dump(f('weights.json'), {**(db.get('modelWeights') or {}), 'cal': db.get('calibration') or {}}); _dump(f('slate.json'), db.get('nbaSlate' if lg == 'nba' else 'slate'))
             _dump(f('opt.json'), [])
             os.makedirs(f('locked')); os.makedirs(f('picks'))
             for p in db.list('ledger/picks'):

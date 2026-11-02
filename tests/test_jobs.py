@@ -282,3 +282,12 @@ def test_live(monkeypatch):
     ledger_jobs.live(db)
     b = db.get('ledger/bets/b')
     assert b['live'] == 'Jacobs ✓ 71 · Kraft 30/44.5 (Q3 6:12)' and b['status'] == 'open' and b['alertedOneLeg'] and sent
+
+
+def test_sgo_guard(monkeypatch):
+    db = FakeDB([{'coll': '', 'id': 'status', 'data': {'sgo': {'used': 2300, 'max': 2500, 'checkedAt': iso(now_utc())}}}])
+    assert sgo.guard(db, 'pregame')[0] is True        # 92%: pre-game refreshes still run
+    ok, why = sgo.guard(db, 'normal')
+    assert ok is False and '2300/2500' in why          # daily line pulls pause
+    monkeypatch.setenv('BETDESK_SKIP_ODDS', '1')
+    assert sgo.guard(db, 'pregame')[0] is False        # code-update runs never pull odds

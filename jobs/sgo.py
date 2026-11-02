@@ -1,5 +1,6 @@
 """SportsGameOdds: book lines for the app (same builder the Claude tasks used, plus spread/total prices)."""
 import datetime as dt
+import os
 import time
 
 import requests
@@ -37,6 +38,32 @@ def usage():
     r = requests.get('https://api.sportsgameodds.com/v2/account/usage', headers={'x-api-key': env('SGO_API_KEY')}, timeout=30)
     lim = (r.json().get('data') or {}).get('rateLimits', {}).get('per-month', {})
     return {'used': lim.get('current-entities'), 'max': lim.get('max-entities')}
+
+
+# Free tier: 2,500 events a month. Spend it on what matters: pre-game refreshes come first, college lines last.
+LIMITS = {'pregame': 0.98, 'normal': 0.90, 'extra': 0.80}
+
+
+def guard(db, kind='normal'):
+    """(ok, reason). Checks the month's SportsGameOdds usage (re-read from the API at most every 3 hours) against the
+    limit for this kind of pull. BETDESK_SKIP_ODDS=1 (code-update runs) skips every pull."""
+    if os.environ.get('BETDESK_SKIP_ODDS'):
+        return False, 'odds skipped on code-update runs'
+    st = db.get('status') or {}
+    u = st.get('sgo') or {}
+    fresh = u.get('checkedAt') and (now_utc() - parse_iso(u['checkedAt'])).total_seconds() < 3 * 3600
+    if not fresh:
+        try:
+            u = {**usage(), 'checkedAt': iso(now_utc())}
+            db.merge('status', {'sgo': u})
+        except (Exception, SystemExit):  # noqa: BLE001
+            return True, ''  # can't tell: don't block
+    used, mx = u.get('used'), u.get('max')
+    if not used or not mx:
+        return True, ''
+    if used / mx >= LIMITS.get(kind, 0.9):
+        return False, f'SportsGameOdds at {used}/{mx}: saving the rest for pre-game refreshes'
+    return True, ''
 
 
 def window(kind):

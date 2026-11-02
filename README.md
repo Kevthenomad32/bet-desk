@@ -83,6 +83,14 @@ Add a `STATMUSE_API_KEY` secret (from developer.statmuse.com/keys) and run **Set
 
 StatMuse use is about 10–15 requests a day from the jobs, plus one per question you ask.
 
+## Model calibration
+
+Every night the settle job compares what the model said (its raw over chance) with what actually happened on every graded prop, per market, and stores a correction in the `calibration` doc (recent nights count more; a market needs 60 graded props before it gets one). The hourly model runs and the app both apply it, so a model that keeps over-projecting gets pulled back automatically. Run it by hand with job `calibrate`.
+
+## SportsGameOdds budget
+
+Odds pulls check the month's usage first: daily line refreshes and closing lines pause at 90%, college lines at 80%, and pre-game refreshes keep running until 98%. Code-update runs never pull odds.
+
 ## Your data
 
 Tracker → **Data & tasks status** → **Download my data** saves everything (bets, picks, the model's graded props, settings, weights) as one file. It's your backup (the import page reads it) and what to send Claude when you want the model checked or refit.

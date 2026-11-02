@@ -128,7 +128,10 @@ def nba_daily(db):
     db.set('nbaPlayers', pdoc)
     out.append(f"{len(players)} player averages ({psrc}), pool {len(pdoc['pool'])}")
     # book lines
-    if sb_today:
+    ok, why = sgo.guard(db, 'normal')
+    if sb_today and not ok:
+        out.append(why)
+    elif sb_today:
         try:
             a, b = sgo.window('nba')
             odds = sgo.build('nba', sgo.fetch('NBA', a, b), players)
@@ -142,6 +145,9 @@ def nba_daily(db):
 
 # ---------- NFL weekly (Wednesday) + line refreshes (Thu/Sun/Mon mornings) ----------
 def nfl_lines(db, players=None):
+    ok, why = sgo.guard(db, 'normal')
+    if not ok:
+        return why
     players = players if players is not None else (db.get('nflPlayers') or {}).get('players', [])
     a, b = sgo.window('nfl')
     odds = sgo.build('nfl', sgo.fetch('NFL', a, b), players)
@@ -207,6 +213,9 @@ def nfl_weekly(db):
 
 # ---------- college football lines (Fri/Sat mornings) ----------
 def cfb_lines(db):
+    ok, why = sgo.guard(db, 'extra')
+    if not ok:
+        return why
     a, b = sgo.window('cfb')
     doc = sgo.build('cfb', sgo.fetch('NCAAF', a, b), [])
     db.set('cfbOdds', {k: doc[k] for k in ('source', 'updated', 'games')})

@@ -6,7 +6,7 @@ import re
 
 import requests
 
-from . import espn, sgo
+from . import calibrate, espn, sgo
 from .common import ET, amer, dec, env, et_date, iso, norm, notify, now_et, now_utc, parse_iso
 from .data_jobs import archive_range
 from .legs import CATEGORY, find_player, grade, league_of, parse_label, stat_value
@@ -123,6 +123,11 @@ def settle(db):
         db.set(f"ledger/shadow/{d['_id']}", {**{k: v for k, v in d.items() if k != '_id'}, 'graded': True, 'gradedAt': iso(now_utc())}); n += 1
     if n:
         out.append(f'{n} games of logged props graded')
+    # refit the probability calibration on everything graded so far (used by the next model runs and the app)
+    try:  # graded props may also come from the app page, so refit every night
+        out.append(calibrate.run(db))
+    except Exception as e:  # noqa: BLE001
+        out.append(f'calibration skipped: {e}')
     # personal bets
     bets = [b for b in db.list('ledger/bets') if b.get('status') == 'open']
     todo, done = [], []
@@ -192,7 +197,8 @@ SINGLE_MKT = {'pts': 'pts', 'reb': 'reb', 'ast': 'ast', 'fg3': 'fg3', 'pra': 'pr
 def closing(db):
     n = now_utc(); a, b = iso(n - D(hours=30)), iso(n - D(hours=3))
     evs = []
-    for L in ('NBA', 'NFL'):
+    ok, why = sgo.guard(db, 'normal')
+    for L in (('NBA', 'NFL') if ok else ()):
         try:
             evs.append(sgo.fetch(L, a, b, CLOSE_ODDS[L]))
         except Exception:  # noqa: BLE001
@@ -232,7 +238,7 @@ def closing(db):
             db.merge(f"ledger/bets/{bt['_id']}", {'closeLine': c['close'], 'clv': clv}); nb += 1
     try:
         u = sgo.usage()
-        db.set('status', {'sgo': {**u, 'checkedAt': iso(now_utc())}, 'closingRunAt': iso(now_utc())})
+        db.merge('status', {'sgo': {**u, 'checkedAt': iso(now_utc())}, 'closingRunAt': iso(now_utc())})
     except Exception:  # noqa: BLE001
         u = {}
     vals = [x['clv'] for x in ups.values()]
