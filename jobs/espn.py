@@ -6,7 +6,7 @@ import requests
 from .common import ET, et_date, fix_ab, nick, norm, parse_iso
 
 BASE = 'https://site.api.espn.com/apis/site/v2/sports/'
-PATH = {'nba': 'basketball/nba', 'nfl': 'football/nfl', 'cfb': 'football/college-football'}
+PATH = {'nba': 'basketball/nba', 'nfl': 'football/nfl', 'cfb': 'football/college-football', 'cbb': 'basketball/mens-college-basketball'}
 _S = requests.Session()
 _S.headers['User-Agent'] = 'Mozilla/5.0 (BetDesk jobs)'
 
@@ -75,12 +75,19 @@ def scoreboard(lg, dates=None, **extra):
         if any(x in (st.get('name') or '') for x in ('POSTPONED', 'CANCELED', 'SUSPENDED')):
             state = 'off'
         hab, aab = fix_ab(lg, H.get('team', {}).get('abbreviation')), fix_ab(lg, A.get('team', {}).get('abbreviation'))
-        out.append({'id': e['id'], 'league': lg, 'start': e.get('date'), 'date': et_date(e['date']) if e.get('date') else None, 'state': state,
+        HT, AT = H.get('team') or {}, A.get('team') or {}
+        if lg == 'cbb':  # college: school (location) as the name, ESPN team id as the key
+            hname, aname = HT.get('location') or HT.get('shortDisplayName'), AT.get('location') or AT.get('shortDisplayName')
+        elif lg == 'cfb':
+            hname, aname = HT.get('shortDisplayName'), AT.get('shortDisplayName')
+        else:
+            hname, aname = nick(lg, hab), nick(lg, aab)
+        out.append({'home_id': HT.get('id'), 'away_id': AT.get('id'), 'home_mascot': HT.get('name'), 'away_mascot': AT.get('name'),
+                    'neutral': bool(comp.get('neutralSite')),'id': e['id'], 'league': lg, 'start': e.get('date'), 'date': et_date(e['date']) if e.get('date') else None, 'state': state,
                     'detail': st.get('shortDetail', ''), 'season': (e.get('season') or {}).get('year'), 'season_type': (e.get('season') or {}).get('type'),
                     'week': (e.get('week') or {}).get('number'),
                     'home_ab': hab, 'away_ab': aab,
-                    'home': nick(lg, hab) if lg != 'cfb' else H.get('team', {}).get('shortDisplayName'),
-                    'away': nick(lg, aab) if lg != 'cfb' else A.get('team', {}).get('shortDisplayName'),
+                    'home': hname, 'away': aname,
                     'home_score': int(H['score']) if H.get('score') not in (None, '') and state != 'pre' else None,
                     'away_score': int(A['score']) if A.get('score') not in (None, '') and state != 'pre' else None,
                     'home_ls': [num(x.get('displayValue', x.get('value'))) for x in H.get('linescores') or []],

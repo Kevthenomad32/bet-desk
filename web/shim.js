@@ -114,6 +114,40 @@ function addAskPanel(tabId, league) {
     btn.disabled = false;
   });
 }
+// ---------- CBB tab: the cbbBoard doc (today's lines, projections, calls) + the season record from ledger/cbbgl ----------
+window.BD_renderCbb = async () => {
+  const box = document.getElementById('cbbPanel'); if (!box) return;
+  const me = (await getSession()).user.id;
+  const [{ data: bd }, { data: led }] = await Promise.all([
+    sb.from('docs').select('data').eq('uid', me).eq('coll', '').eq('id', 'cbbBoard').maybeSingle(),
+    sb.from('docs').select('id,data').eq('uid', me).eq('coll', 'ledger/cbbgl')]);
+  const B = bd?.data, calls = (led || []).map(r => r.data);
+  const am = v => v == null ? '—' : (Number(v) > 0 ? '+' + Number(v) : String(v));
+  const pct = v => v == null ? '—' : Math.round(v * 100) + '%';
+  const time = iso => iso ? new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '';
+  // season record: every graded call, and the leans only
+  const rec = (filter) => { let w = 0, l = 0, p = 0, u = 0;
+    for (const d of calls) for (const c of Object.values(d.calls || {})) { if (!c.result || !filter(c)) continue;
+      const o = Number(c.price), dd = o > 0 ? o / 100 : 100 / -o;
+      if (c.result === 'won') { w++; u += dd; } else if (c.result === 'lost') { l++; u -= 1; } else p++; }
+    return `${w}–${l}${p ? '–' + p : ''} (${u >= 0 ? '+' : ''}${u.toFixed(1)}u)`; };
+  const rows = (B?.games || []).slice().sort((a, b) => (a.start || '').localeCompare(b.start || ''));
+  const cell = (c, kind, g) => { if (!c) return '<td>—</td>';
+    const side = kind === 'spread' ? (c.side === 'home' ? g.home + ' ' + am(c.line) : g.away + ' ' + am(-c.line)) : c.side + ' ' + c.line;
+    return `<td class="small">${esc(side)} <span class="muted">${am(c.price)}</span><br>${pct(c.pWin)}${c.lean ? ' <b style="color:var(--accent)">lean</b>' : ''}` +
+      `<br><span class="muted">${c.anchor === 'Pinnacle' ? 'vs Pinnacle ' + pct(c.pb) : 'no Pinnacle'}</span></td>`; };
+  box.innerHTML = `<div class="row spread"><h2>College hoops</h2><span class="small muted">${B ? 'Updated ' + new Date(B.updated).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' }) : ''}</span></div>
+    <p class="small muted">Spread and total calls from the app's team ratings against Hard Rock's line, nudged from Pinnacle's fair price. Calls lock an hour before tip; a <b>lean</b> needs 53%+ at a normal price.
+    Record so far: leans ${rec(c => c.lean)} · all calls ${rec(() => true)}.</p>
+    ${!B ? '<p>No college board yet. It fills in after the 9:31am run once TheRundown is connected.</p>' :
+      !rows.length ? '<p>No college games priced today.</p>' :
+      `<div class="tablewrap"><table><thead><tr><th>Game</th><th>Tip</th><th>Projection</th><th>Spread call</th><th>Total call</th></tr></thead><tbody>${rows.map(g =>
+        `<tr><td>${esc(g.away)} @ ${esc(g.home)}${g.neutral ? ' <span class="muted small">(neutral)</span>' : ''}</td><td class="small">${time(g.start)}</td>
+         <td class="small">${esc(g.home)} by ${g.proj.margin}<br>total ${g.proj.total}${g.proj.gp < 3 ? '<br><span class="muted">early season</span>' : ''}</td>
+         ${cell(g.calls.spread, 'spread', g)}${cell(g.calls.total, 'total', g)}</tr>`).join('')}</tbody></table></div>`}
+    ${B && B.unmatched ? `<p class="small muted">${B.unmatched} games skipped (couldn't match team names).</p>` : ''}`;
+};
+
 function addAskPanels() { addAskPanel('tab-nba', 'nba'); addAskPanel('tab-nfl', 'nfl'); }
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', addAskPanels); else addAskPanels();
 

@@ -192,6 +192,7 @@ body.has-slip main{padding-bottom:120px}
       <button role="tab" id="t-nfl" aria-selected="false" data-tab="nfl">NFL</button>
       <button role="tab" id="t-nba" aria-selected="false" data-tab="nba">NBA</button>
       <button role="tab" id="t-cfb" aria-selected="false" data-tab="cfb">CFB</button>
+      <button role="tab" id="t-cbb" aria-selected="false" data-tab="cbb">CBB</button>
       <button role="tab" id="t-score" aria-selected="false" data-tab="score">Scores</button>
       <button role="tab" id="t-slip" aria-selected="false" data-tab="slip">Slip Cleaner</button>
     </nav>
@@ -476,6 +477,7 @@ body.has-slip main{padding-bottom:120px}
   </section>
 
   <!-- SCOREBOARD -->
+  <section class="tab" id="tab-cbb" hidden><div class="panel" id="cbbPanel"><h2>College hoops</h2><p class="small muted">Loading…</p></div></section>
   <section class="tab" id="tab-score" hidden>
     <div class="panel">
       <div class="row spread"><h2>Live scores</h2><span class="small muted" id="sbStamp"></span></div>
@@ -676,7 +678,7 @@ function saveProps(items){
 async function saveDoc(name, body){ if (!S.live){ S[name]=body; renderProps(); renderMatchups(); return; } await S.db.doc(S.base+'/'+name).set(body); }
 
 // ---------- tabs ----------
-const TABS = {tracker:'#tab-tracker', nfl:'#tab-nfl', nba:'#tab-nba', cfb:'#tab-cfb', score:'#tab-score', slip:'#tab-slip'};
+const TABS = {tracker:'#tab-tracker', nfl:'#tab-nfl', nba:'#tab-nba', cfb:'#tab-cfb', score:'#tab-score', slip:'#tab-slip', cbb:'#tab-cbb'};
 const OLD_TAB = {props:'nfl', match:'nfl'};
 function showTab(t){
   for (const [k,sel] of Object.entries(TABS)) $(sel).hidden = k!==t;
@@ -688,6 +690,7 @@ function showTab(t){
   try{ if(t==='nba') loadOpt('nba'); if(t==='nfl') loadOpt('nfl'); }catch(e){}
   try{ if(t==='nba'){ loadNbaGl(false); maybeGradeNbaGl(); } }catch(e){}
   try{ if(t==='cfb'){ loadCfb(false); maybeGradeCfb(false); } }catch(e){}
+  try{ if(t==='cbb' && window.BD_renderCbb) BD_renderCbb(); }catch(e){}
 }
 document.querySelectorAll('nav.tabs button').forEach(b=>b.addEventListener('click',()=>showTab(b.dataset.tab)));
 // Week 8 soft spots: position filter (hides non-matching ranks and games with none)

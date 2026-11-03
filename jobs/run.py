@@ -1,20 +1,21 @@
 """Run Bet Desk jobs.
 
     python -m jobs.run tick         # what the hourly schedule runs: picks the jobs due now (US Eastern clock)
-    python -m jobs.run <job>        # pregame | nbagl | nba_daily | nfl_weekly | nfl_lines | injuries | settle | closing | recap | live | cfb_lines
+    python -m jobs.run <job>        # pregame | nbagl | cbb_daily | cbbgl | cbb_settle | calibrate | nba_daily | nfl_weekly | nfl_lines | injuries | settle | closing | recap | live | cfb_lines
     python -m jobs.run backfill     # first-time setup: archive this season's games, then build every data doc
 """
 import datetime as dt
 import sys
 import traceback
 
-from . import calibrate, data_jobs, espn, ledger_jobs, model_jobs, stats
+from . import calibrate, cbb, data_jobs, espn, ledger_jobs, model_jobs, stats
 from .common import DB, now_et, now_utc
 
 JOBS = {
     'pregame': model_jobs.pregame, 'nbagl': model_jobs.nbagl,
     'nba_daily': data_jobs.nba_daily, 'nfl_weekly': data_jobs.nfl_weekly, 'nfl_lines': lambda db: data_jobs.nfl_lines(db),
     'injuries': data_jobs.injuries_job, 'cfb_lines': data_jobs.cfb_lines,
+    'cbb_daily': cbb.daily, 'cbbgl': cbb.pregame, 'cbb_settle': cbb.settle,
     'calibrate': calibrate.run, 'settle': ledger_jobs.settle, 'closing': ledger_jobs.closing, 'recap': ledger_jobs.recap, 'live': ledger_jobs.live,
 }
 
@@ -23,8 +24,9 @@ def due_now(t=None):
     """Jobs due at this hour (the schedule fires once an hour, at :31 UTC)."""
     t = t or now_et(); h, wd = t.hour, t.weekday()  # Mon=0 ... Sun=6
     jobs = []
+    cbb_season = t.month in (11, 12, 1, 2, 3) or (t.month == 4 and t.day <= 8)  # Nov to the title game
     if h == 9:
-        jobs += ['injuries', 'nba_daily']
+        jobs += ['injuries', 'nba_daily'] + (['cbb_daily'] if cbb_season else [])
         if wd == 2:
             jobs.append('nfl_weekly')
         elif wd in (3, 6, 0):
@@ -37,8 +39,12 @@ def due_now(t=None):
         jobs.append('pregame')
     if 10 <= h <= 23:
         jobs.append('nbagl')
+        if cbb_season:
+            jobs.append('cbbgl')
     if h in (0, 2):
         jobs.append('settle')
+        if cbb_season or t.month == 4:
+            jobs.append('cbb_settle')
     if h == 4:
         jobs.append('closing')
     if wd == 6 and 11 <= h <= 23:

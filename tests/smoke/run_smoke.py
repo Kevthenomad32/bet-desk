@@ -11,6 +11,12 @@ from playwright.sync_api import sync_playwright
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 WEB = os.path.join(ROOT, 'web')
 backup = json.load(open(sys.argv[1]))
+call = lambda side, line, price, pw, lean, res=None: {'side': side, 'line': line, 'price': price, 'pWin': pw, 'pb': 0.5, 'lean': lean, 'anchor': 'Pinnacle', **({'result': res} if res else {})}
+backup['docs'] += [
+    {'coll': '', 'id': 'cbbBoard', 'data': {'updated': '2026-11-03T14:31:00Z', 'date': '2026-11-03', 'unmatched': 2, 'games': [
+        {'away': 'Duke', 'home': 'Kansas', 'start': '2026-11-04T00:30:00Z', 'neutral': True, 'proj': {'margin': 2.1, 'total': 151.4, 'gp': 1},
+         'calls': {'spread': call('home', -1.5, -110, 0.531, True), 'total': call('under', 152.5, -108, 0.512, False)}}]}},
+    {'coll': 'ledger/cbbgl', 'id': 'cbb-2026-11-03-x-at-y', 'data': {'calls': {'spread': call('away', 3.5, -110, 0.54, True, 'won')}}}]
 ESPN_SB = {'events': [{'id': '401', 'date': '2026-10-29T23:30:00Z', 'season': {'year': 2027, 'type': 2},
                        'status': {'type': {'state': 'in', 'name': 'STATUS_IN_PROGRESS', 'shortDetail': 'Q3 5:12'}},
                        'competitions': [{'broadcasts': [{'names': ['ESPN']}], 'competitors': [
@@ -90,6 +96,8 @@ with sync_playwright() as p:
     res['ask_sent'] = asked
     if os.environ.get('ASKSHOT'): pg.locator('#tab-nba .bd-ask').screenshot(path=os.environ['ASKSHOT'])
     res['ask_nfl_panel'] = pg.evaluate("document.querySelector('#tab-nfl .bd-ask .bd-ask-lg').value")
+    pg.click('#t-cbb'); pg.wait_for_timeout(800)
+    res['cbb'] = pg.inner_text('#cbbPanel')[:600].replace('\n', ' | ')
     pg.click('#t-tracker'); pg.wait_for_timeout(300)
     res['export_button'] = pg.evaluate("!!document.getElementById('bdExport') && document.getElementById('bdExport').nextElementSibling.id==='refreshAll'")
     pg.screenshot(path=os.environ.get('SHOT', '/tmp/smoke.png'), full_page=False)

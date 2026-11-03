@@ -25,13 +25,15 @@ def pov(m,sd,l):
 r4=lambda x: None if x is None else round(x,4)
 
 def odds_rows(odds_doc):
-    """nbaOdds doc (SportsGameOdds) -> rows in the Optimal query format the builder reads."""
+    """nbaOdds doc (TheRundown or SportsGameOdds) -> rows in the Optimal query format the builder reads."""
     t=lambda l,a,b: '' if l is None else ','.join(str(x) for x in (l, a if a not in (None,'') else -110, b if b not in (None,'') else -110))
     out=[]
     for g in (odds_doc or {}).get('games',[]):
         sp,tot,ml=g.get('spread') or {},g.get('total') or {},g.get('ml') or {}
         r=[t(sp.get('home'),sp.get('homeOdds'),sp.get('awayOdds')),t(tot.get('line'),tot.get('overOdds'),tot.get('underOdds')),
-           (','.join(['0',str(ml['home']),str(ml['away'])]) if ml.get('home') and ml.get('away') else '')]+['']*8
+           (','.join(['0',str(ml['home']),str(ml['away'])]) if ml.get('home') and ml.get('away') else ''),
+           t(sp.get('pinHome'),sp.get('pinHomeOdds'),sp.get('pinAwayOdds')) if sp.get('pinHomeOdds') else '',   # Pinnacle (TheRundown): the sharp anchor
+           t(tot.get('pinLine'),tot.get('pinOver'),tot.get('pinUnder')) if tot.get('pinOver') else '']+['']*6
         out.append({'a':g['away'],'h':g['home'],'s':g.get('start'),'r':'|'.join(r)})
     return out
 

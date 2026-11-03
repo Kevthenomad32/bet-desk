@@ -7,7 +7,7 @@ const CORS = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
-const JOBS = new Set(['tick', 'calibrate', 'pregame', 'nbagl', 'nba_daily', 'nfl_weekly', 'injuries', 'settle', 'closing', 'recap', 'live', 'cfb_lines']);
+const JOBS = new Set(['tick', 'calibrate', 'cbb_daily', 'cbbgl', 'cbb_settle', 'pregame', 'nbagl', 'nba_daily', 'nfl_weekly', 'injuries', 'settle', 'closing', 'recap', 'live', 'cfb_lines']);
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { ...CORS, 'Content-Type': 'application/json' } });
 
 // Only a signed-in Bet Desk user may call this (the public anon key alone is refused).

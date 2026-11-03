@@ -112,7 +112,9 @@ def test_schedule():
     assert 'cfb_lines' in due_now(at(2026, 10, 30, 9))                                               # Fri
     assert due_now(at(2026, 10, 29, 0)) == ['settle'] and due_now(at(2026, 10, 29, 2)) == ['settle']
     assert due_now(at(2026, 10, 29, 4)) == ['closing']
-    assert due_now(at(2026, 11, 1, 13)) == ['pregame', 'nbagl', 'live']                              # Sunday 1:31pm
+    assert due_now(at(2026, 11, 1, 13)) == ['pregame', 'nbagl', 'cbbgl', 'live']                     # Sunday 1:31pm (college hoops season)
+    assert due_now(at(2026, 11, 3, 9))[:3] == ['injuries', 'nba_daily', 'cbb_daily']
+    assert 'cbb_settle' in due_now(at(2026, 11, 4, 0)) and 'cbbgl' not in due_now(at(2026, 10, 20, 13))  # no college hoops in October
     assert due_now(at(2026, 10, 29, 23)) == ['nbagl']
     assert due_now(at(2026, 10, 29, 6)) == []
 

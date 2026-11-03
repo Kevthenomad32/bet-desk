@@ -109,5 +109,12 @@ rep("  return {pModel:pm, pBook:pb, pOver:pf, side, ev:Math.max(evO,evU), pWin:s
 rep("  db.doc(S.base+'/nbaInjuries').onSnapshot(",
     "  db.doc(S.base+'/calibration').onSnapshot(snap=>{ S.cal = snap.exists?snap.data():null; try{ renderNba(); renderSixty(); }catch(e){} }, ()=>{});\n  db.doc(S.base+'/nbaInjuries').onSnapshot(")
 
+# --- men's college basketball tab (content drawn by shim.js from the cbbBoard doc and ledger/cbbgl) ---
+rep('data-tab="cfb">CFB</button>', 'data-tab="cfb">CFB</button>\n      <button role="tab" id="t-cbb" aria-selected="false" data-tab="cbb">CBB</button>')
+rep('<section class="tab" id="tab-score"', '<section class="tab" id="tab-cbb" hidden><div class="panel" id="cbbPanel"><h2>College hoops</h2><p class="small muted">Loading…</p></div></section>\n  <section class="tab" id="tab-score"')
+rep("slip:'#tab-slip'}", "slip:'#tab-slip', cbb:'#tab-cbb'}")
+rep("try{ if(t==='cfb'){ loadCfb(false); maybeGradeCfb(false); } }catch(e){}",
+    "try{ if(t==='cfb'){ loadCfb(false); maybeGradeCfb(false); } }catch(e){}\n  try{ if(t==='cbb' && window.BD_renderCbb) BD_renderCbb(); }catch(e){}")
+
 open(out, 'w', encoding='utf-8').write(s)
 print('built', out, len(s), 'bytes')

@@ -207,7 +207,8 @@ def game_entry(lg, e):
     if not H or not A:
         return None, None
     home, away = team_name(lg, H), team_name(lg, A)
-    g = {'away': away, 'home': home, 'start': e.get('event_date'), 'spread': {}, 'total': {}, 'ml': {}, 'book': None, 'rundownId': e.get('event_id')}
+    g = {'away': away, 'home': home, 'start': e.get('event_date'), 'spread': {}, 'total': {}, 'ml': {}, 'book': None, 'rundownId': e.get('event_id'),
+         'awayMascot': A.get('mascot'), 'homeMascot': H.get('mascot')}
     for m in e.get('markets') or []:
         mid = m.get('market_id')
         if mid == 1 or mid == 2:

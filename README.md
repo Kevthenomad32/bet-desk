@@ -91,6 +91,10 @@ Every night the settle job compares what the model said (its raw over chance) wi
 
 Add a `THERUNDOWN_API_KEY` secret and every line pull (daily, pre-game, college) switches to TheRundown: Hard Rock's own lines and prices, Pinnacle's price at the same line as the model's sharp anchor (`pinO`/`pinU`), and the best price across DraftKings, FanDuel, BetMGM and Caesars (`bestO`/`bestU`). SportsGameOdds stays as the automatic fallback.
 
+## Men's college basketball (needs TheRundown)
+
+November to April the jobs archive every Division I score from ESPN (last season too, on the first run), fit team ratings each morning (points model with home court, opponent-adjusted, last season as the starting point), and price the day's Hard Rock spreads and totals with Pinnacle as the anchor. Calls lock an hour before tip and are graded overnight. See the **CBB** tab.
+
 ## SportsGameOdds budget
 
 Odds pulls check the month's usage first: daily line refreshes and closing lines pause at 90%, college lines at 80%, and pre-game refreshes keep running until 98%. Code-update runs never pull odds.
