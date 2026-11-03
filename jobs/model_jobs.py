@@ -5,7 +5,7 @@ import subprocess
 import sys
 import tempfile
 
-from . import sgo
+from . import lines, sgo
 from .data_jobs import build_injuries, merged_injuries
 from .model import gl_build
 
@@ -27,13 +27,10 @@ def pregame(db):
             continue
         pdoc = db.get(f'{lg}Players') or {}
         odds = old
-        ok, why = sgo.guard(db, 'pregame')
         try:
-            if not ok:
-                raise RuntimeError(why)
-            evs = sgo.fetch(LEAGUE, a, b)
-            if evs:
-                odds = sgo.merge(old, sgo.build(lg, evs, pdoc.get('players', [])))
+            fresh, _ = lines.odds_doc(db, lg, a, b, pdoc.get('players', []), 'pregame')
+            if fresh['games']:
+                odds = sgo.merge(old, fresh)
                 db.set(f'{lg}Odds', odds)
         except Exception as e:  # noqa: BLE001
             out.append(f'{LEAGUE} odds not refreshed ({e}); using the last lines')

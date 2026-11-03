@@ -38,6 +38,7 @@ jobs:
           APP_EMAIL: ${{ secrets.APP_EMAIL }}
           SGO_API_KEY: ${{ secrets.SGO_API_KEY }}
           STATMUSE_API_KEY: ${{ secrets.STATMUSE_API_KEY }}
+          THERUNDOWN_API_KEY: ${{ secrets.THERUNDOWN_API_KEY }}
           BETDESK_SKIP_ODDS: ${{ github.event_name == 'push' && '1' || '' }}  # code updates reload stats, not odds
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}

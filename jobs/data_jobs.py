@@ -2,7 +2,7 @@
 with ESPN + the games archive as the fallback."""
 import datetime as dt
 
-from . import espn, sgo, statmuse, stats
+from . import espn, lines, sgo, statmuse, stats
 from .common import ET, et_date, iso, norm, now_et, now_utc
 
 YMD = lambda d: d.strftime('%Y%m%d')
@@ -128,15 +128,13 @@ def nba_daily(db):
     db.set('nbaPlayers', pdoc)
     out.append(f"{len(players)} player averages ({psrc}), pool {len(pdoc['pool'])}")
     # book lines
-    ok, why = sgo.guard(db, 'normal')
-    if sb_today and not ok:
-        out.append(why)
-    elif sb_today:
+    if sb_today:
         try:
             a, b = sgo.window('nba')
-            odds = sgo.build('nba', sgo.fetch('NBA', a, b), players)
+            odds, note = lines.odds_doc(db, 'nba', a, b, players)
             db.set('nbaOdds', odds)
-            out.append(f"{len(odds['props'])} props ({sum(p['avg'] is not None for p in odds['props'])} with averages)")
+            out.append(f"{len(odds['props'])} props ({sum(p['avg'] is not None for p in odds['props'])} with averages, "
+                       f"{sum(1 for p in odds['props'] if p.get('pinO'))} with Pinnacle) from {odds['source']}" + (f' [{note}]' if note else ''))
         except Exception as e:  # noqa: BLE001
             out.append(f'odds skipped: {e}')
     out.insert(0, f'archived {archived} games')
@@ -145,14 +143,14 @@ def nba_daily(db):
 
 # ---------- NFL weekly (Wednesday) + line refreshes (Thu/Sun/Mon mornings) ----------
 def nfl_lines(db, players=None):
-    ok, why = sgo.guard(db, 'normal')
-    if not ok:
-        return why
     players = players if players is not None else (db.get('nflPlayers') or {}).get('players', [])
     a, b = sgo.window('nfl')
-    odds = sgo.build('nfl', sgo.fetch('NFL', a, b), players)
+    try:
+        odds, note = lines.odds_doc(db, 'nfl', a, b, players)
+    except RuntimeError as e:
+        return str(e)
     db.set('nflOdds', odds)
-    return f"{len(odds['games'])} games, {len(odds['props'])} props"
+    return f"{len(odds['games'])} games, {len(odds['props'])} props ({sum(1 for p in odds['props'] if p.get('pinO'))} with Pinnacle) from {odds['source']}" + (f' [{note}]' if note else '')
 
 
 def nfl_weekly(db):
@@ -213,10 +211,10 @@ def nfl_weekly(db):
 
 # ---------- college football lines (Fri/Sat mornings) ----------
 def cfb_lines(db):
-    ok, why = sgo.guard(db, 'extra')
-    if not ok:
-        return why
     a, b = sgo.window('cfb')
-    doc = sgo.build('cfb', sgo.fetch('NCAAF', a, b), [])
+    try:
+        doc, _ = lines.odds_doc(db, 'cfb', a, b, [], 'extra')
+    except RuntimeError as e:
+        return str(e)
     db.set('cfbOdds', {k: doc[k] for k in ('source', 'updated', 'games')})
     return f"{len(doc['games'])} college games"

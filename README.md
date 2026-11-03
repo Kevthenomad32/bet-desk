@@ -87,6 +87,10 @@ StatMuse use is about 10–15 requests a day from the jobs, plus one per questio
 
 Every night the settle job compares what the model said (its raw over chance) with what actually happened on every graded prop, per market, and stores a correction in the `calibration` doc (recent nights count more; a market needs 60 graded props before it gets one). The hourly model runs and the app both apply it, so a model that keeps over-projecting gets pulled back automatically. Run it by hand with job `calibrate`.
 
+## TheRundown (optional, Starter plan)
+
+Add a `THERUNDOWN_API_KEY` secret and every line pull (daily, pre-game, college) switches to TheRundown: Hard Rock's own lines and prices, Pinnacle's price at the same line as the model's sharp anchor (`pinO`/`pinU`), and the best price across DraftKings, FanDuel, BetMGM and Caesars (`bestO`/`bestU`). SportsGameOdds stays as the automatic fallback.
+
 ## SportsGameOdds budget
 
 Odds pulls check the month's usage first: daily line refreshes and closing lines pause at 90%, college lines at 80%, and pre-game refreshes keep running until 98%. Code-update runs never pull odds.
