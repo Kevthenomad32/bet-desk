@@ -181,15 +181,15 @@ def side_markets(market):
         typ = (part.get('type') or '').upper()
         side = 'over' if typ == 'TYPE_OVER' or re.search(r'\bover$', name, re.I) else 'under' if typ == 'TYPE_UNDER' or re.search(r'\bunder$', name, re.I) else None
         base = re.sub(r'(^|\s+)(over|under)$', '', name, flags=re.I).strip()  # 'Jalen Brunson Over' -> name; plain 'Over' -> ''
-        if side is None:
-            continue
         for line in part.get('lines') or []:
-            val = _num(line.get('value'))
-            if val is None:
+            raw = str(line.get('value') or '').strip()
+            m = re.match(r'(?i)^(over|under)\s*([-+]?\d+(\.\d+)?)$', raw)  # live shape: TYPE_PLAYER participant, value 'Over 11.5'
+            sd, val = (m.group(1).lower(), float(m.group(2))) if m else (side, _num(raw))
+            if sd is None or val is None:
                 continue
             for aff, pr in _price_rows(line).items():
                 slot = by.setdefault(base, {}).setdefault(aff, {})
-                slot.setdefault(val, {})[side] = pr
+                slot.setdefault(val, {})[sd] = pr
     out = {}
     for base, affs in by.items():
         for aff, lines in affs.items():

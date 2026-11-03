@@ -65,3 +65,14 @@ def test_started_games_skipped_and_unknown_players_dropped():
 def test_et_offset():
     import datetime as dt
     assert R.et_offset(dt.date(2026, 11, 3)) == 300 and R.et_offset(dt.date(2026, 7, 1)) == 240
+
+
+def test_live_player_shape():
+    """Live API: participant = player (TYPE_PLAYER), side and number in the line value."""
+    e = event()
+    e['markets'][3] = {'market_id': 29, 'participants': [
+        {'id': 7, 'type': 'TYPE_PLAYER', 'name': 'Jalen Brunson', 'lines': [
+            {'value': 'Over 26.5', 'prices': pr(a28=-115, a19=-110)}, {'value': 'Under 26.5', 'prices': pr(a28=-105, a19=-110)},
+            {'value': 'Over 25.5', 'prices': pr(a3=-130)}, {'value': 'Under 25.5', 'prices': pr(a3=110)}]}]}
+    b = R.build('nba', [e], PLAYERS, prop_markets=R.NBA_PROPS)['props'][0]
+    assert b['player'] == 'Jalen Brunson' and b['line'] == 26.5 and b['odds'] == '-115' and b['pinLine'] == 25.5
