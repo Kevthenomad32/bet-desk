@@ -207,6 +207,7 @@ body.has-slip main{padding-bottom:120px}
       <div class="row spread"><h3 id="recapTitle">Weekly recap</h3><span class="small muted" id="recapWhen"></span></div>
       <div id="recapBody" class="small" style="white-space:pre-line"></div>
     </div>
+    <div class="row spread" style="margin:0 0 8px"><h3 id="tilesTitle" style="margin:0">All time</h3><select id="tilesWeek" aria-label="Week" style="width:auto;min-height:36px"></select></div>
     <div class="tiles" id="tiles"></div>
     <div class="panel">
       <div class="row spread"><h3>Bankroll &amp; units</h3><span class="small muted" id="unitNote"></span></div>
@@ -709,8 +710,26 @@ try{ let t=localStorage.getItem('bd-tab'); t=OLD_TAB[t]||t; if (t&&TABS[t]) show
 { const h=OLD_TAB[location.hash.slice(1)]||location.hash.slice(1); if (h && TABS[h]) showTab(h); }
 
 // ---------- TRACKER ----------
+// weeks run Monday to Sunday, by the bet's date
+const weekOf = d => { const t=new Date((d||'')+'T12:00'); if(isNaN(t)) return null; t.setDate(t.getDate()-((t.getDay()+6)%7)); return t.toISOString().slice(0,10); };
+const weekName = w => { const a=new Date(w+'T12:00'), b=new Date(a); b.setDate(a.getDate()+6); const f=x=>x.toLocaleDateString('en-US',{month:'short',day:'numeric'}); return `${f(a)} – ${f(b)}`; };
+function weekPicker(bets){
+  const sel=$('#tilesWeek'); if(!sel) return 'all';
+  const cur=weekOf(new Date(Date.now()-new Date().getTimezoneOffset()*6e4).toISOString().slice(0,10));
+  const weeks=[...new Set([cur,...bets.map(b=>weekOf(b.date)).filter(Boolean)])].sort().reverse();
+  let v=S.tilesWeek; if(v==null){ try{ v=localStorage.getItem('bd-tilesweek')||'all'; }catch(_){ v='all'; } }
+  if(v!=='all'&&v!=='cur'&&!weeks.includes(v)) v='all';
+  sel.replaceChildren(el('option',{value:'all',text:'All time',selected:v==='all'}), el('option',{value:'cur',text:`This week (${weekName(cur)})`,selected:v==='cur'}),
+    ...weeks.filter(w=>w!==cur).map(w=>el('option',{value:w,text:`Week of ${weekName(w)}`,selected:v===w})));
+  sel.onchange=()=>{ S.tilesWeek=sel.value; try{ localStorage.setItem('bd-tilesweek',sel.value); }catch(_){} renderTracker(); };
+  S.tilesWeek=v; const w=v==='cur'?cur:v;
+  $('#tilesTitle').textContent = v==='all'?'All time':v==='cur'?'This week':`Week of ${weekName(w)}`;
+  return w;
+}
 function renderTracker(){
-  const bets = [...S.bets].sort((a,b)=> (b.date||'').localeCompare(a.date||'') || (b.createdAt||0)-(a.createdAt||0));
+  const allBets = [...S.bets].sort((a,b)=> (b.date||'').localeCompare(a.date||'') || (b.createdAt||0)-(a.createdAt||0));
+  const wk = weekPicker(allBets);
+  const bets = wk==='all' ? allBets : allBets.filter(b=>weekOf(b.date)===wk);
   const done = bets.filter(settled);
   const realStaked = done.reduce((s,b)=>s+(b.bonus?0:b.stake),0);
   const totalNet = done.reduce((s,b)=>s+net(b),0);
@@ -723,6 +742,7 @@ function renderTracker(){
     tile('Record', `${W}–${L}${P?'–'+P:''}`, W+L? `${pct(W/(W+L))} of settled bets won`:'No settled bets yet'),
     tile('Open bets', String(open.length), open.length? `${money(atRisk)} at risk · ${money(potential)} to win`:'Nothing pending', '')
   );
+  { const bets = allBets, done = bets.filter(settled), W = bets.filter(b=>b.status==='won').length;  // everything below the tiles stays all-time
   // by type
   const types = {}; for (const b of bets){ const t=types[b.type]||(types[b.type]={n:0,w:0,l:0,net:0,risk:0}); t.n++; if(b.status==='won')t.w++; if(b.status==='lost')t.l++; if(settled(b)){ t.net+=net(b); t.risk+=b.bonus?0:b.stake; } }
   const tb = $('#bytype'); tb.replaceChildren(el('thead',{},el('tr',{},el('th',{text:'Type'}),el('th',{class:'r',text:'Bets'}),el('th',{class:'r',text:'W–L'}),el('th',{class:'r',text:'Net'}),el('th',{class:'r',text:'ROI'}))));
@@ -742,6 +762,7 @@ function renderTracker(){
   if (!S.bets.length) list.append(el('div',{class:'empty',text:'No bets yet. Tap + Add bet to log your first slip.'}));
   else if (!shown.length) list.append(el('div',{class:'empty',text:'No bets in this view.'}));
   for (const b of shown) list.append(betRow(b));
+  }
 }
 function tile(k,v,s,cls=''){ return el('div',{class:'tile'},el('div',{class:'k',text:k}),el('div',{class:'v '+cls,text:v}),el('div',{class:'s',text:s})); }
 function betRow(b){

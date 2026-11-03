@@ -73,6 +73,11 @@ with sync_playwright() as p:
     res['sync'] = pg.inner_text('#sync')
     res['offline_hidden'] = pg.eval_on_selector('#offline', 'e=>e.hidden')
     res['tiles'] = pg.inner_text('#tiles').replace('\n', ' | ')[:300]
+    res['week_opts'] = pg.eval_on_selector_all('#tilesWeek option', 'os=>os.map(o=>o.textContent)')[:4]
+    pg.select_option('#tilesWeek', index=2); pg.wait_for_timeout(300)
+    res['week_tiles'] = pg.inner_text('#tilesTitle') + ' :: ' + pg.inner_text('#tiles').replace('\n', ' | ')[:300]
+    res['week_list_all'] = pg.eval_on_selector_all('#betList .bet', 'els=>els.length')
+    pg.select_option('#tilesWeek', 'all'); pg.wait_for_timeout(300)
     res['bets_listed'] = pg.eval_on_selector_all('#betList .bet', 'els=>els.length')
     # write path: change the unit setting
     pg.fill('#st-unit', '50'); pg.click('#st-save'); pg.wait_for_timeout(500)
