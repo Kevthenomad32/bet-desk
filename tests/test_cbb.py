@@ -77,3 +77,10 @@ def test_early_season_blowouts_dont_inflate_home_court():
     R = cbb.fit(games, prior=prior, h_fixed=3.2, unknown=cbb.UNKNOWN_PRIOR)
     assert R['h'] == 3.2 and R['teams']['t0']['O'] - R['teams']['t0']['D'] < -10
     assert cbb.fit(games, prior=prior)['h'] <= 6.0  # fitted h is clamped
+
+
+def test_far_from_market_is_flagged_not_a_lean():
+    c = cbb.call('spread', 21.0, 10.8, -41.5, '-110', '-110', -41.5, '-105', '-105')  # model: home by 21; market: by 41.5
+    assert c['far'] and not c['lean']
+    c2 = cbb.call('spread', 9.0, 10.8, -7.5, '-110', '-110', -7.5, '-105', '-105')
+    assert not c2['far']

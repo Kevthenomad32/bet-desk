@@ -104,7 +104,7 @@ function sxRows(lg, docs, bar = 0.6) {
     return out;
   }
   for (const d of docs) for (const k of ['spread', 'total']) {
-    const c = d.calls?.[k]; if (!c || !(c.pWin >= bar)) continue;
+    const c = d.calls?.[k]; if (!c || !(c.pWin >= bar) || c.far) continue;  // 'far' = model miles off the market: not a real call
     const label = k === 'spread' ? (c.side === 'home' ? `${d.home} ${sxLine(c.line)}` : `${d.away} ${sxLine(-c.line)}`) : `${c.side === 'over' ? 'Over' : 'Under'} ${c.line}`;
     let res = lg === 'cfb' ? (d.res?.[k] || null) : ({ won: 'hit', lost: 'miss', push: 'push' }[c.result] || null);
     const sc = d.final || d.score;
@@ -237,7 +237,7 @@ window.BD_renderCbb = async () => {
   const rows = (B?.games || []).slice().sort((a, b) => (a.start || '').localeCompare(b.start || ''));
   const cell = (c, kind, g) => { if (!c) return '<td>—</td>';
     const side = kind === 'spread' ? (c.side === 'home' ? g.home + ' ' + am(c.line) : g.away + ' ' + am(-c.line)) : c.side + ' ' + c.line;
-    return `<td class="small">${esc(side)} <span class="muted">${am(c.price)}</span><br>${pct(c.pWin)}${c.lean ? ' <b style="color:var(--accent)">lean</b>' : ''}` +
+    return `<td class="small">${esc(side)} <span class="muted">${am(c.price)}</span><br>${pct(c.pWin)}${c.lean ? ' <b style="color:var(--accent)">lean</b>' : ''}${c.far ? ' <span class="muted">· model far off the market, ignore</span>' : ''}` +
       `<br><span class="muted">${c.anchor === 'Pinnacle' ? 'vs Pinnacle ' + pct(c.pb) : 'no Pinnacle'}</span></td>`; };
   box.innerHTML = `<div class="row spread"><h2>College hoops</h2><span class="small muted">${B ? 'Updated ' + new Date(B.updated).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' }) : ''}</span></div>
     <p class="small muted">Spread and total calls from the app's team ratings against Hard Rock's line, nudged from Pinnacle's fair price. Calls lock an hour before tip; a <b>lean</b> needs 53%+ at a normal price.

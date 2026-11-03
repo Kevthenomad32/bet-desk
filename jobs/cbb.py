@@ -16,7 +16,7 @@ from . import espn
 from .common import ET, iso, norm, now_et, now_utc, parse_iso
 
 LAMBDA = 6.0        # prior strength, in games
-REGRESS = 0.6       # keep 60% of last season's rating
+REGRESS = 0.8       # keep 80% of last season's rating (0.6 squeezed big mismatches far below the market)
 W = 0.25            # how far the model may move the market's chance
 SD_M, SD_T = 10.8, 13.5
 YMD = lambda d: d.strftime('%Y%m%d')
@@ -214,9 +214,10 @@ def call(kind, mean, sd, line, o, u, pin_line=None, pin_o=None, pin_u=None):
     A, B = ('home', 'away') if kind == 'spread' else ('over', 'under')
     side = A if pf >= .5 else B; pw = pf if side == A else 1 - pf; price = o if side == A else u
     gap = abs(pm - pb)
+    far = gap > .22  # model miles from the market: almost always missing information (roster turnover, small-school mismatch)
     return {'line': line, 'odds': o, 'uodds': u, 'pinO': po if use_pin else None, 'pinU': pu if use_pin else None, 'anchor': 'Pinnacle' if use_pin else 'book',
             'pb': round(pb, 4), 'pm': round(pm, 4), 'pf': round(pf, 4), 'side': side, 'pWin': round(pw, 4), 'price': price,
-            'ev': round(pw * (dec(price) - 1) - (1 - pw), 4), 'lean': bool(pw >= .53 and gap <= .22 and (-150 <= price <= -100 or 100 <= price <= 130))}
+            'ev': round(pw * (dec(price) - 1) - (1 - pw), 4), 'far': far, 'lean': bool(pw >= .53 and not far and (-150 <= price <= -100 or 100 <= price <= 130))}
 
 
 def slug(s):
