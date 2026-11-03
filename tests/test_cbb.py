@@ -67,3 +67,13 @@ def test_scoreboard_accepts_limit(monkeypatch):
     monkeypatch.setattr(espn, 'get', lambda path, **p: seen.update(p) or {'events': []})
     espn.scoreboard('cbb', '20261103', groups=50, limit=500)
     assert seen.get('limit') == 500 and seen.get('groups') == 50
+
+
+def test_early_season_blowouts_dont_inflate_home_court():
+    # big schools hosting unknown small schools and winning by 30: home court must stay at last season's value
+    prior = {str(i): {'O': 4.0, 'D': -4.0} for i in range(10)}
+    games = [{'id': str(k), 'date': '2026-11-05', 'home': f'Big {k % 10}', 'away': f'Tiny {k}', 'home_score': 95, 'away_score': 62,
+              'box': {'home_id': str(k % 10), 'away_id': f't{k}'}} for k in range(40)]
+    R = cbb.fit(games, prior=prior, h_fixed=3.2, unknown=cbb.UNKNOWN_PRIOR)
+    assert R['h'] == 3.2 and R['teams']['t0']['O'] - R['teams']['t0']['D'] < -10
+    assert cbb.fit(games, prior=prior)['h'] <= 6.0  # fitted h is clamped

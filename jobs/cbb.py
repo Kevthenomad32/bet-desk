@@ -56,9 +56,14 @@ def season_games(db, season):
 
 
 # ---------- ratings ----------
-def fit(games, prior=None, lam=LAMBDA, iters=80):
-    """{mu, h, teams: {espn id: {name, mascot, O, D, n}}}."""
-    prior = prior or {}
+UNKNOWN_PRIOR = {'O': -8.0, 'D': 8.0}  # about 16 points worse than an average D1 team
+
+
+def fit(games, prior=None, lam=LAMBDA, iters=80, h_fixed=None, unknown=None):
+    """{mu, h, teams: {espn id: {name, mascot, O, D, n}}}. h_fixed: use this home-court edge instead of fitting it.
+    unknown: prior for teams missing from `prior` (early season: mostly small non-D1 schools, so a weak prior, not average)."""
+    prior = dict(prior or {})
+    rated = set(prior)  # teams with a real rating: the average of these is held at zero
     G = []
     names = {}
     for g in games:
@@ -67,7 +72,10 @@ def fit(games, prior=None, lam=LAMBDA, iters=80):
         names[hi] = (g['home'], b.get('home_mascot')); names[ai] = (g['away'], b.get('away_mascot'))
         G.append((hi, ai, float(g['home_score']), float(g['away_score']), 0.0 if b.get('neutral') else 1.0))
     if not G:
-        return {'mu': 72.0, 'h': 3.0, 'teams': {}}
+        return {'mu': 72.0, 'h': h_fixed or 3.0, 'teams': {}}
+    if unknown:
+        for t in names:
+            prior.setdefault(t, dict(unknown))
     O = {t: (prior.get(t) or {}).get('O', 0.0) for t in names}
     D = {t: (prior.get(t) or {}).get('D', 0.0) for t in names}
     mu = sum(p for g in G for p in g[2:4]) / (2 * len(G)); h = 3.0
@@ -76,7 +84,7 @@ def fit(games, prior=None, lam=LAMBDA, iters=80):
         off[hi].append((k, 'h')); off[ai].append((k, 'a')); dfn[ai].append((k, 'h')); dfn[hi].append((k, 'a'))
     for _ in range(iters):
         hg = [(ph - pa) - (O[hi] + D[ai] - O[ai] - D[hi]) for hi, ai, ph, pa, home in G if home]
-        h = sum(hg) / len(hg) if hg else 3.0
+        h = h_fixed if h_fixed is not None else min(6.0, max(0.0, sum(hg) / len(hg))) if hg else 3.0
         mu = sum((ph - O[hi] - D[ai] - home * h / 2) + (pa - O[ai] - D[hi] + home * h / 2) for hi, ai, ph, pa, home in G) / (2 * len(G))
         for t in names:
             pO, pD = (prior.get(t) or {}).get('O', 0.0), (prior.get(t) or {}).get('D', 0.0)
@@ -91,7 +99,8 @@ def fit(games, prior=None, lam=LAMBDA, iters=80):
                 s += (ph - mu - O[hi] - home * h / 2) if side == 'h' else (pa - mu - O[ai] + home * h / 2)
             D[t] = (s + lam * pD) / (len(dfn[t]) + lam)
         # keep the average team at zero (mu carries the level)
-        mo = sum(O.values()) / len(O); md = sum(D.values()) / len(D)
+        base = [t for t in names if t in rated] or list(names)
+        mo = sum(O[t] for t in base) / len(base); md = sum(D[t] for t in base) / len(base)
         O = {t: v - mo for t, v in O.items()}; D = {t: v - md for t, v in D.items()}; mu += mo + md
     return {'mu': round(mu, 3), 'h': round(h, 3),
             'teams': {t: {'name': names[t][0], 'mascot': names[t][1], 'O': round(O[t], 3), 'D': round(D[t], 3), 'n': len(off[t])} for t in names}}
@@ -125,7 +134,9 @@ def ratings(db, today=None):
     prev = fit(season_games(db, s - 1), lam=1.0)
     prior = {t: {'O': REGRESS * v['O'], 'D': REGRESS * v['D']} for t, v in prev['teams'].items()}
     cur_games = season_games(db, s)
-    cur = fit(cur_games, prior=prior)
+    # home court comes from last season's full fit; teams with no rating last season (mostly non-D1) start well below average
+    h_prev = prev['h'] if prev['teams'] else 3.0
+    cur = fit(cur_games, prior=prior, h_fixed=h_prev, unknown=UNKNOWN_PRIOR)
     # teams with no game yet this season still get their prior
     for t, v in prev['teams'].items():
         cur['teams'].setdefault(t, {'name': v['name'], 'mascot': v['mascot'], 'O': round(REGRESS * v['O'], 3), 'D': round(REGRESS * v['D'], 3), 'n': 0})
