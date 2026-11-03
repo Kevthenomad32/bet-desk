@@ -79,7 +79,6 @@ You can run any job by hand: **Actions → Bet Desk jobs → Run workflow** (`ba
 Add a `STATMUSE_API_KEY` secret (from developer.statmuse.com/keys) and run **Set up Supabase** again. Then:
 
 - the jobs take injury reports, NBA team ratings, player averages / last-5 role and NFL defense / player averages from StatMuse (ESPN stays as the automatic fallback; each run's page shows a yellow warning if it had to fall back), and
-- the NBA and NFL tabs get an **Ask StatMuse** box with your remaining StatMuse quota.
 
 StatMuse use is about 10–15 requests a day from the jobs, plus one per question you ask.
 

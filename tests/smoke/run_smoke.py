@@ -91,11 +91,8 @@ with sync_playwright() as p:
     res['cfb_msg'] = pg.inner_text('#cfbMsg')
     pg.click('#t-tracker'); pg.wait_for_timeout(500)
     pg.click('#t-nba'); pg.wait_for_timeout(300)
-    pg.fill('#tab-nba .bd-ask-in', 'Brunson points last 5 games'); pg.click('#tab-nba .bd-ask button'); pg.wait_for_timeout(800)
-    res['ask'] = pg.inner_text('#tab-nba .bd-ask').replace('\n', ' | ')[:220]
+    res['ask_gone'] = pg.evaluate("document.querySelector('.bd-ask') === null")
     res['ask_sent'] = asked
-    if os.environ.get('ASKSHOT'): pg.locator('#tab-nba .bd-ask').screenshot(path=os.environ['ASKSHOT'])
-    res['ask_nfl_panel'] = pg.evaluate("document.querySelector('#tab-nfl .bd-ask .bd-ask-lg').value")
     pg.click('#t-cbb'); pg.wait_for_timeout(800)
     res['cbb'] = pg.inner_text('#cbbPanel')[:600].replace('\n', ' | ')
     pg.click('#t-tracker'); pg.wait_for_timeout(300)
