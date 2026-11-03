@@ -6,7 +6,7 @@
   class Q {
     constructor(t) { this.t = t; this.f = []; this.op = 'select'; this.lim = null; this.one = false; this.rng = null; this.ord = null; }
     select() { return this; }
-    eq(c, v) { this.f.push(r => r[c] === v); return this; }
+    eq(c, v) { const m = /^(\w+)->>(\w+)$/.exec(c); this.f.push(m ? r => String((r[m[1]] || {})[m[2]]) === String(v) : r => r[c] === v); return this; }
     ilike(c, p) { const re = new RegExp('^' + p.replace(/%/g, '.*') + '$', 'i'); this.f.push(r => re.test(r[c] || '')); return this; }
     order(c, o) { this.ord = [c, o?.ascending !== false]; return this; }
     limit(n) { this.lim = n; return this; }

@@ -74,6 +74,86 @@ function addExportButton() {
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', addExportButton); else addExportButton();
 
 const esc = v => String(v ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+// ---------- 60%+ trackers for NFL (props), CFB and CBB (spreads + totals): every model pick at 60%+, graded as 1u straight at the locked price ----------
+const SX = {
+  nfl: { tab: 'tab-nfl', title: 'NFL 60%+ Tracker', coll: 'ledger/shadow', league: 'NFL', mkts: { pass: 'Pass yds', rush: 'Rush yds', rec: 'Rec yds' }, by: 'Week',
+         about: 'Every player prop the model priced before kickoff (passing, rushing, receiving yards) where it rates one side 60%+. Graded as a 1-unit straight bet at the book price.' },
+  cfb: { tab: 'tab-cfb', title: 'CFB 60%+ Tracker', coll: 'ledger/cfb', mkts: { spread: 'Spread', total: 'Total' }, by: 'Saturday',
+         about: 'Every locked college football spread and total where the model rates its side 60%+ (Hard Rock price, nudged from Pinnacle). Moneylines are left out: any big favorite clears 60%. Game lines are sharp, so 60%+ calls are rare: use 55%+ or 53%+ to see more.' },
+  cbb: { tab: 'tab-cbb', title: 'CBB 60%+ Tracker', coll: 'ledger/cbbgl', mkts: { spread: 'Spread', total: 'Total' }, by: 'Night',
+         about: 'Every locked college basketball spread and total where the model rates its side 60%+. Game lines are sharp and the model stays close to Pinnacle\'s fair price, so 60%+ calls are rare: use 55%+ or 53%+ to see more.' } };
+const SX_BARS = [0.6, 0.55, 0.53];
+const sxBar = lg => { try { const v = parseFloat(localStorage.getItem('bd-sxbar-' + lg)); return SX_BARS.includes(v) ? v : 0.6; } catch (_) { return 0.6; } };
+document.addEventListener('click', e => { const b = e.target.closest && e.target.closest('.bd-sx-bar button'); if (!b) return; const lg = Object.keys(SX).find(k => b.closest('#' + SX[k].tab));
+  try { localStorage.setItem('bd-sxbar-' + lg, b.dataset.b); } catch (_) {} window.BD_renderSixty(lg); });
+const sxNum = v => { const n = parseInt(v, 10); return isFinite(n) ? n : null; };
+const sxAm = n => n > 0 ? '+' + n : String(n);
+const sxPct = v => Math.round(v * 1000) / 10 + '%';
+const sxLine = v => (v > 0 ? '+' : '') + v;
+function sxRows(lg, docs, bar = 0.6) {
+  const out = [];
+  if (lg === 'nfl') {
+    for (const d of docs) for (const r of d.rows || []) {
+      if (!SX.nfl.mkts[r.market] || typeof r.pModel !== 'number') continue;
+      const conf = Math.max(r.pModel, 1 - r.pModel); if (conf < bar) continue;
+      const over = r.pModel >= 0.5, odds = sxNum(over ? r.odds : r.uodds);
+      const res = r.result == null ? null : r.result === r.line ? 'push' : (over === (r.result > r.line)) ? 'hit' : 'miss';
+      out.push({ date: d.date, game: d.game, start: d.gameStart, label: `${r.player} ${over ? 'o' : 'u'}${r.line} ${SX.nfl.mkts[r.market]}`, market: r.market,
+                 odds: odds ?? -115, priced: odds != null, conf, res, shown: r.result });
+    }
+    return out;
+  }
+  for (const d of docs) for (const k of ['spread', 'total']) {
+    const c = d.calls?.[k]; if (!c || !(c.pWin >= bar)) continue;
+    const label = k === 'spread' ? (c.side === 'home' ? `${d.home} ${sxLine(c.line)}` : `${d.away} ${sxLine(-c.line)}`) : `${c.side === 'over' ? 'Over' : 'Under'} ${c.line}`;
+    let res = lg === 'cfb' ? (d.res?.[k] || null) : ({ won: 'hit', lost: 'miss', push: 'push' }[c.result] || null);
+    const sc = d.final || d.score;
+    out.push({ date: d.date, game: d.game || `${d.away} @ ${d.home}`, start: d.gameStart || d.start, label, market: k, odds: sxNum(c.price) ?? -110, priced: true,
+               conf: c.pWin, res, shown: sc ? `${sc.away}–${sc.home}` : '' });
+  }
+  return out;
+}
+function sxAgg(rows) { let w = 0, l = 0, p = 0, u = 0; for (const r of rows) { if (r.res === 'push') { p++; continue; } if (r.res === 'hit') { w++; u += r.odds > 0 ? r.odds / 100 : 100 / -r.odds; } else if (r.res === 'miss') { l++; u -= 1; } } return { w, l, p, u, n: w + l }; }
+const sxWeek = d => { const t = new Date(d + 'T12:00'); const k = new Date(t); k.setDate(t.getDate() - ((t.getDay() + 5) % 7)); return k.toISOString().slice(0, 10); };  // NFL week starts Tuesday
+async function renderSixtyFor(lg) {
+  const cfg = SX[lg], tab = document.getElementById(cfg.tab); if (!tab) return;
+  let box = tab.querySelector('.bd-sixty');
+  if (!box) { box = document.createElement('div'); box.className = 'panel bd-sixty'; const first = tab.querySelector('.panel'); first ? first.after(box) : tab.prepend(box); box.innerHTML = `<h2>${cfg.title}</h2><p class="small muted">Loading…</p>`; }
+  const me = (await getSession()).user.id;
+  let q = sb.from('docs').select('id,data').eq('uid', me).eq('coll', cfg.coll); if (cfg.league) q = q.eq('data->>league', cfg.league);
+  const [{ data: led }, { data: st }] = await Promise.all([q, sb.from('docs').select('data').eq('uid', me).eq('coll', '').eq('id', 'settings').maybeSingle()]);
+  const unit = Number(st?.data?.unit) || 50;
+  const bar = sxBar(lg); const all = sxRows(lg, (led || []).map(r => r.data), bar), done = all.filter(r => r.res != null), a = sxAgg(done);
+  const avg = done.length ? Math.round(done.reduce((s, r) => s + r.odds, 0) / done.length) : -112;
+  const be = avg < 0 ? -avg / (-avg + 100) : 100 / (avg + 100), rate = a.n ? a.w / a.n : 0;
+  const v = a.n < 100 ? ['Too early', 'warnc', `${a.n} of ~100 graded picks needed`] : (rate > be + 0.02 && a.u > 0) ? ['Worth betting', 'pos', 'Beating break-even by 2%+'] : rate > be ? ['Borderline', 'warnc', 'Ahead, but barely'] : ['Not yet', 'neg', 'Below break-even'];
+  const tile = (k, val, cls, sub) => `<div class="tile"><span class="k">${k}</span><span class="v num ${cls}">${val}</span><span class="s">${sub}</span></div>`;
+  const u = x => `${x >= 0 ? '+' : '−'}${Math.abs(x).toFixed(2)}u`;
+  const row = (label, g) => { const x = sxAgg(g); return `<tr><td>${esc(label)}</td><td class="r num">${x.w}-${x.l}</td><td class="r num">${x.n ? sxPct(x.w / x.n) : '—'}</td><td class="r num ${x.u >= 0 ? 'pos' : 'neg'}">${u(x.u)}</td></tr>`; };
+  const head = t => `<tr><th>${t}</th><th class="r">W-L</th><th class="r">Hit</th><th class="r">Units</th></tr>`;
+  const key = lg === 'nfl' ? r => sxWeek(r.date) : r => r.date;
+  const groups = [...new Set(done.map(key))].sort().reverse();
+  const gname = k => (lg === 'nfl' ? 'Week of ' : '') + new Date(k + 'T12:00').toLocaleDateString('en-US', { weekday: lg === 'nfl' ? undefined : 'short', month: 'short', day: 'numeric' });
+  const now = Date.now(), open = all.filter(r => r.res == null && (!r.start || Date.parse(r.start) > now - 4 * 36e5)).sort((x, y) => y.conf - x.conf);
+  const when = r => r.start ? new Date(r.start).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' }) : '';
+  const pctT = Math.round(bar * 1000) / 10 + '%+';
+  box.innerHTML = `<div class="row spread"><h2>${cfg.title.replace('60%+', pctT)}</h2><div class="filters bd-sx-bar">${SX_BARS.map(b => `<button type="button" data-b="${b}" aria-pressed="${b === bar}">${Math.round(b * 1000) / 10}%+</button>`).join('')}</div></div>
+    <p class="small muted">${cfg.about.replace('60%+', pctT)} You need about ${sxPct(be)} to break even at ${sxAm(avg)}.</p>
+    <div class="tiles">${tile('Record', `${a.w}-${a.l}`, '', a.n ? `${sxPct(rate)} · break-even ${sxPct(be)}` : 'No graded picks yet')}${tile('Units', u(a.u), a.u >= 0 ? 'pos' : 'neg', `${a.u >= 0 ? '+' : '−'}$${Math.abs(a.u * unit).toFixed(0)} at $${unit} a unit`)}${tile('Sample', a.n, '', `${groups.length} ${cfg.by.toLowerCase()}${groups.length === 1 ? '' : 's'}${a.p ? ` · ${a.p} push` : ''}`)}${tile('Verdict', v[0], v[1], v[2])}</div>
+    <div class="two" style="margin-top:14px">
+      <div><h3 style="margin-bottom:8px">By market</h3><div class="tablewrap"><table>${head('Market')}${Object.entries(cfg.mkts).map(([k, n]) => row(n, done.filter(r => r.market === k))).join('')}</table></div></div>
+      <div><h3 style="margin-bottom:8px">By ${cfg.by.toLowerCase()}</h3><div class="tablewrap"><table>${head(cfg.by)}${groups.map(g => row(gname(g), done.filter(r => key(r) === g))).join('') || '<tr><td colspan="4" class="muted">Nothing graded yet</td></tr>'}</table></div></div>
+    </div>
+    <h3 style="margin:14px 0 8px">Open qualifying picks</h3>
+    <div class="tablewrap"><table><tr><th>Pick</th><th>Game</th><th class="r">Price</th><th class="r">Model</th></tr>${open.map(r => `<tr><td><b>${esc(r.label)}</b></td><td class="small muted">${esc(r.game)} · ${when(r)}${r.start && Date.parse(r.start) < now ? ' · started' : ''}</td><td class="r num">${r.priced ? sxAm(r.odds) : '—'}</td><td class="r num">${sxPct(r.conf)}</td></tr>`).join('') || '<tr><td colspan="4" class="muted">No qualifying picks right now. They show up once the model prices each game before it starts.</td></tr>'}</table></div>
+    <p class="small muted">Check the line on Hard Rock before betting: skip a pick if the line has moved a point or more against it${lg === 'nfl' ? ', or if the player is on the injury report' : ''}.</p>
+    <details><summary class="small">Every graded pick (${done.length})</summary><div class="tablewrap" style="margin-top:8px"><table><tr><th>Date</th><th>Pick</th><th class="r">Result</th><th class="r">Price</th></tr>${
+      done.sort((x, y) => String(y.date).localeCompare(String(x.date)) || y.conf - x.conf).map(r => `<tr><td class="small muted">${String(r.date).slice(5)}</td><td>${esc(r.label)} <span class="small muted">${sxPct(r.conf)}</span></td><td class="r num ${r.res === 'push' ? '' : r.res === 'hit' ? 'pos' : 'neg'}">${esc(r.shown ?? '')} ${r.res === 'push' ? 'P' : r.res === 'hit' ? '✓' : '✗'}</td><td class="r num">${sxAm(r.odds)}</td></tr>`).join('')}</table></div></details>`;
+}
+window.BD_renderSixty = lg => renderSixtyFor(lg).catch(e => console.error('60% tracker', lg, e));
+function sixtyForVisible() { for (const lg of Object.keys(SX)) { const t = document.getElementById(SX[lg].tab); if (t && !t.hidden) window.BD_renderSixty(lg); } }
+document.addEventListener('click', e => { if (e.target.closest && e.target.closest('nav.tabs button')) setTimeout(sixtyForVisible, 50); });
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => setTimeout(sixtyForVisible, 500)); else setTimeout(sixtyForVisible, 500);
 // ---------- CBB tab: the cbbBoard doc (today's lines, projections, calls) + the season record from ledger/cbbgl ----------
 window.BD_renderCbb = async () => {
   const box = document.getElementById('cbbPanel'); if (!box) return;

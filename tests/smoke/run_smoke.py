@@ -82,18 +82,22 @@ with sync_playwright() as p:
     res['ngl_src'] = pg.inner_text('#nglSrc')
     pg.click('#t-nfl'); pg.wait_for_timeout(800)
     res['nfl_title'] = pg.inner_text('#slateTitle')
+    pg.wait_for_timeout(1200); res['nfl60'] = pg.inner_text('#tab-nfl .bd-sixty')[:700].replace('\n', ' | ')
     res['soft_spots'] = pg.eval_on_selector_all('#ssDef .ss-g', 'els=>els.length')
     pg.click('#t-score'); pg.wait_for_timeout(1500)
     res['scores'] = pg.inner_text('#sbGames').replace('\n', ' | ')[:200]
     pg.click('#sbGames .sb'); pg.wait_for_timeout(1200)
     res['box'] = pg.inner_text('#sbGames .box').replace('\n', ' | ')[:200] if pg.query_selector('#sbGames .box') else None
     pg.click('#t-cfb'); pg.wait_for_timeout(800)
+    res['cfb60'] = pg.inner_text('#tab-cfb .bd-sixty')[:500].replace('\n', ' | ')
     res['cfb_msg'] = pg.inner_text('#cfbMsg')
     pg.click('#t-tracker'); pg.wait_for_timeout(500)
     pg.click('#t-nba'); pg.wait_for_timeout(300)
     res['ask_gone'] = pg.evaluate("document.querySelector('.bd-ask') === null")
     res['ask_sent'] = asked
     pg.click('#t-cbb'); pg.wait_for_timeout(800)
+    pg.click('#tab-cbb .bd-sx-bar button[data-b="0.53"]'); pg.wait_for_timeout(500)
+    res['cbb60'] = pg.inner_text('#tab-cbb .bd-sixty')[:500].replace('\n', ' | ')
     res['cbb'] = pg.inner_text('#cbbPanel')[:600].replace('\n', ' | ')
     pg.click('#t-tracker'); pg.wait_for_timeout(300)
     res['export_button'] = pg.evaluate("!!document.getElementById('bdExport') && document.getElementById('bdExport').nextElementSibling.id==='refreshAll'")
