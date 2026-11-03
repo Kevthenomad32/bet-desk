@@ -38,6 +38,14 @@ PG = [{'league': 'nba', 'game_id': f'g{i}', 'player_id': '99', 'name': 'Darius G
        'opp': 'Wizards', 'opp_ab': 'WAS', 'date': f'2026-10-2{i}', 'season': 2027, 'starter': True, 'dnp': False, 'stats': {'pts': 20 + i, 'reb': 3, 'ast': 7, 'fg3': 2, 'min': 33}}
       for i in range(1, 6)]
 
+import datetime as _dt
+_today = (_dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(hours=5)).date().isoformat()
+backup['docs'].append({'coll': 'ledger/bets', 'id': 'gn1', 'data': {'label': 'Jalen Brunson o24.5 pts, Stephen Curry u27.5 pts, Brunson double-double', 'legs': 3, 'type': 'Parlay',
+                       'stake': 20, 'odds': 400, 'status': 'open', 'date': _today, 'sport': 'NBA', 'book': 'Hard Rock Bet'}})
+PG += [{'league': 'nba', 'game_id': 'x1', 'player_id': '3', 'name': 'Jalen Brunson', 'name_norm': 'jalen brunson', 'team': 'Knicks', 'team_ab': 'NYK', 'opp': 'Warriors', 'opp_ab': 'GSW',
+        'date': '2026-10-30', 'season': 2027, 'starter': True, 'dnp': False, 'stats': {'pts': 30}},
+       {'league': 'nba', 'game_id': 'x1', 'player_id': '1', 'name': 'Stephen Curry', 'name_norm': 'stephen curry', 'team': 'Warriors', 'team_ab': 'GSW', 'opp': 'Knicks', 'opp_ab': 'NYK',
+        'date': '2026-10-30', 'season': 2027, 'starter': True, 'dnp': False, 'stats': {'pts': 30}}]
 errors, logs = [], []
 with sync_playwright() as p:
     b = p.chromium.launch()
@@ -101,6 +109,10 @@ with sync_playwright() as p:
     res['scores'] = pg.inner_text('#sbGames').replace('\n', ' | ')[:200]
     pg.click('#sbGames .sb'); pg.wait_for_timeout(1200)
     res['box'] = pg.inner_text('#sbGames .box').replace('\n', ' | ')[:200] if pg.query_selector('#sbGames .box') else None
+    pg.set_viewport_size({'width': 390, 'height': 844}); pg.click('#gnBtn'); pg.wait_for_timeout(2500)
+    res['gamenight'] = pg.inner_text('#bdGN').replace('\n', ' | ')[:700]
+    if os.environ.get('GNSHOT'): pg.screenshot(path=os.environ['GNSHOT'])
+    pg.set_viewport_size({'width': 1200, 'height': 900}); pg.click('#bdGN [data-a=x]'); res['gn_closed'] = pg.query_selector('#bdGN') is None
     pg.click('#t-cfb'); pg.wait_for_timeout(800)
     res['cfb60'] = pg.inner_text('#tab-cfb .bd-sixty')[:500].replace('\n', ' | ')
     res['cfb_msg'] = pg.inner_text('#cfbMsg')

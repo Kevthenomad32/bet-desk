@@ -499,4 +499,206 @@ window.claude = { use: async name => {
   if (name === 'sample') return C.claudeEnabled === false ? null : sampleCap;
   if (name === 'downloads') return downloadsCap;
   return null; } };
+
+// ---------- Game night: a full-screen live view of Kev's open bets, leg by leg, plus the live scores (ESPN, every 20s) ----------
+const GN = { open: false, timer: null, lock: null, teams: new Map(), last: null };
+const GN_MKT = [[/p\s*\+\s*r\s*\+\s*a|\bpra\b|points\s*\+\s*rebounds\s*\+\s*assists/i, 'pra'], [/p\s*\+\s*r\b|pts\s*\+\s*reb|points\s*\+\s*rebounds/i, 'pr'],
+  [/p\s*\+\s*a\b|pts\s*\+\s*ast|points\s*\+\s*assists/i, 'pa'], [/r\s*\+\s*a\b|reb\s*\+\s*ast|rebounds\s*\+\s*assists/i, 'ra'], [/3pm|3pt|three|\b3s\b|3-pointers/i, 'fg3'],
+  [/steal/i, 'stl'], [/block/i, 'blk'], [/\breb/i, 'reb'], [/\bast\b|assist/i, 'ast'], [/\bpts?\b|point/i, 'pts'], [/pass(ing)?\s*(td|touchdown)/i, 'passTd'],
+  [/pass(ing)?\s*att/i, 'att'], [/complet/i, 'cmp'], [/intercept|\bints?\b/i, 'int'], [/rush(ing)?\s*att|carries/i, 'car'], [/rush(ing)?\s*\+\s*rec/i, 'rr'],
+  [/pass/i, 'pass'], [/rush/i, 'rush'], [/receptions|\brecs\b|catches/i, 'recs'], [/rec|receiv/i, 'rec']];
+const GN_NAME = { pts: 'PTS', reb: 'REB', ast: 'AST', fg3: '3PM', stl: 'STL', blk: 'BLK', pra: 'PRA', pr: 'P+R', pa: 'P+A', ra: 'R+A', pass: 'Pass yds', rush: 'Rush yds', rec: 'Rec yds',
+  recs: 'Rec', car: 'Rush att', att: 'Pass att', cmp: 'Comp', passTd: 'Pass TD', int: 'INT', rr: 'Rush+Rec yds', td: 'Anytime TD', dd: 'Double-double', td3: 'Triple-double' };
+const GN_NBA = new Set(['pts', 'reb', 'ast', 'fg3', 'stl', 'blk', 'pra', 'pr', 'pa', 'ra', 'dd', 'td3']);
+function gnLeg(t) {
+  t = t.trim(); if (!t) return { text: t };
+  let m = t.match(/^(.+?)\s+(?:anytime\s*td|atd|anytime touchdown|to score a td)(?:\s*scorer)?\s*$/i);
+  if (m) return { text: t, player: m[1].trim(), market: 'td', side: 'over', line: 0.5 };
+  m = t.match(/^(.+?)\s+(?:to record (?:a |an )?)?(triple[\s-]*double|double[\s-]*double)\s*(?:yes)?\s*$/i);
+  if (m) return { text: t, player: m[1].trim(), market: /^t/i.test(m[2]) ? 'td3' : 'dd', side: 'over', line: 0.5 };
+  m = t.match(/^(.+?)\s+(?:to record\s+)?(\d+)\+\s*(.*)$/i);
+  if (m) { const mk = (GN_MKT.find(([rx]) => rx.test(m[3])) || [])[1]; if (mk) return { text: t, player: m[1].trim(), market: mk, side: 'over', line: +m[2] - 0.5 }; }
+  m = t.match(/^(.+?)\s+(o|u|over|under)\s*([\d.]+)\+?\s*(.*)$/i);
+  if (!m) return { text: t };
+  const mk = (GN_MKT.find(([rx]) => rx.test(m[4])) || [])[1]; if (!mk) return { text: t };
+  return { text: t, player: m[1].replace(/\s*\([^)]*\)\s*$/, '').trim(), market: mk, side: /^o/i.test(m[2]) ? 'over' : 'under', line: +m[3] };
+}
+function gnLegs(label) {
+  let s = String(label || '').replace(/\([^)]*@[^)]*\)/g, '');
+  if (s.slice(0, 40).includes(':')) s = s.split(':').slice(1).join(':');
+  return s.split(/\s*(?:,|;|\n|\s\+\s|\s\/\s)\s*/).filter(x => x.trim()).map(gnLeg);
+}
+// NBA and NFL box score -> {norm name: {stat: value}}
+const GN_NBA_COL = { points: 'pts', rebounds: 'reb', assists: 'ast', steals: 'stl', blocks: 'blk', minutes: 'min', 'threePointFieldGoalsMade-threePointFieldGoalsAttempted': 'fg3' };
+const GN_NFL_COL = { 'passing/passingYards': 'pass', 'passing/passingTouchdowns': 'passTd', 'passing/interceptions': 'int', 'passing/completions/passingAttempts': 'cmp',
+  'rushing/rushingAttempts': 'car', 'rushing/rushingYards': 'rush', 'rushing/rushingTouchdowns': 'rushTd', 'receiving/receptions': 'recs', 'receiving/receivingYards': 'rec', 'receiving/receivingTouchdowns': 'recTd' };
+function gnBox(lg, j) {
+  const out = {};
+  for (const blk of j?.boxscore?.players || []) for (const grp of blk.statistics || []) {
+    const gname = (grp.name || '').toLowerCase(), keys = grp.keys || [];
+    for (const a of grp.athletes || []) {
+      const n = norm(a.athlete?.displayName); if (!n) continue;
+      const p = out[n] = out[n] || { name: a.athlete?.displayName, team: blk.team?.abbreviation, dnp: false };
+      if (a.didNotPlay || !(a.stats || []).length) { if (lg === 'nba') p.dnp = true; continue; }
+      keys.forEach((k, i) => {
+        const col = lg === 'nba' ? GN_NBA_COL[k] : GN_NFL_COL[gname + '/' + k]; if (!col) return;
+        const raw = String(a.stats[i] ?? '');
+        if (col === 'cmp') { const [c, at] = raw.split('/'); p.cmp = +c || 0; p.att = +at || 0; return; }
+        p[col] = /^-?\d+(\.\d+)?$/.test(raw) ? +raw : (+raw.split('-')[0] || 0);
+      });
+    }
+  }
+  return out;
+}
+function gnValue(s, mk) {
+  if (!s) return null; const g = k => +s[k] || 0;
+  if (mk === 'dd' || mk === 'td3') return ['pts', 'reb', 'ast', 'stl', 'blk'].filter(k => g(k) >= 10).length;
+  return { pra: g('pts') + g('reb') + g('ast'), pr: g('pts') + g('reb'), pa: g('pts') + g('ast'), ra: g('reb') + g('ast'), td: g('rushTd') + g('recTd'), rr: g('rush') + g('rec') }[mk] ?? g(mk);
+}
+// game progress 0..1 from the scoreboard status
+function gnFrac(lg, st) {
+  const t = st?.type || {}; if (t.state === 'post') return 1; if (t.state !== 'in') return 0;
+  const per = st.period || 1, n = lg === 'nba' ? 12 : 15, [mm, ss] = String(st.displayClock || '0:00').split(':').map(Number);
+  const left = (mm || 0) + (ss || 0) / 60, regs = 4;
+  if (per > regs) return 0.99;
+  return Math.min(0.99, ((per - 1) * n + (n - left)) / (regs * n));
+}
+async function gnTeamOf(lg, player) {
+  const k = lg + ':' + norm(player); if (GN.teams.has(k)) return GN.teams.get(k);
+  const n = norm(player), last = n.split(' ').pop();
+  const { data } = await sb.from('player_games').select('name_norm,team_ab,date').eq('league', lg).ilike('name_norm', `%${last}%`).order('date', { ascending: false }).limit(60);
+  const rows = data || [];
+  const hit = rows.find(r => r.name_norm === n) || rows.find(r => r.name_norm.split(' ').pop() === last && r.name_norm[0] === n[0] && n.split(' ').length > 1)
+    || (n.split(' ').length === 1 && new Set(rows.filter(r => r.name_norm.split(' ').pop() === last).map(r => r.name_norm)).size === 1 ? rows.find(r => r.name_norm.split(' ').pop() === last) : null);
+  const v = hit ? { ab: hit.team_ab, name: hit.name_norm } : null; GN.teams.set(k, v); return v;
+}
+const gnAb = (lg, ab) => fixAb(lg, ab);
+const gnMoney = v => (v < 0 ? '−$' : '$') + Math.abs(v).toFixed(2).replace(/\.00$/, '');
+function gnToWin(b) { const o = Number(b.odds); const d = o > 0 ? o / 100 : 100 / -o; return (Number(b.stake) || 0) * d * (1 + (Number(b.boost) || 0) / 100); }
+async function gnLoad() {
+  const me = (await getSession()).user.id, since = etDate(Date.now() - 36 * 3600e3), today = etDate(Date.now());
+  const { data: rows } = await sb.from('docs').select('id,data').eq('uid', me).eq('coll', 'ledger/bets');
+  const bets = (rows || []).map(r => ({ id: r.id, ...r.data })).filter(b => b.status === 'open' && (b.date || '') >= since);
+  // scoreboards for both leagues (NFL: this week's games)
+  const boards = {};
+  await Promise.all(['nba', 'nfl'].map(async lg => {
+    try { const j = await espn(`${LG_PATH[lg]}/scoreboard?dates=${ymd(lg === 'nfl' ? etDate(Date.now() - 3 * 864e5) : today)}${lg === 'nfl' ? '-' + ymd(etDate(Date.now() + 4 * 864e5)) : ''}&limit=100`, 15000);
+      boards[lg] = (j.events || []).map(e => { const c = e.competitions?.[0] || {}, cs = c.competitors || [], h = cs.find(x => x.homeAway === 'home'), a = cs.find(x => x.homeAway === 'away'), st = e.status || c.status;
+        return { lg, id: e.id, start: e.date, st, state: st?.type?.state, detail: st?.type?.shortDetail || '', home: { ab: gnAb(lg, h?.team?.abbreviation), score: h?.score }, away: { ab: gnAb(lg, a?.team?.abbreviation), score: a?.score },
+          frac: gnFrac(lg, st), net: (c.broadcasts || []).flatMap(x => x.names || []).join('/') }; }); }
+    catch (e) { boards[lg] = []; }
+  }));
+  // place each leg in a game, then read that game's box score
+  const legs = []; for (const b of bets) { b._legs = gnLegs(b.label); for (const L of b._legs) if (L.player) legs.push(L); }
+  await Promise.all(legs.map(async L => {
+    const lgs = GN_NBA.has(L.market) ? ['nba'] : ['nfl'];
+    for (const lg of lgs) { const t = await gnTeamOf(lg, L.player).catch(() => null); if (!t) continue;
+      const g = (boards[lg] || []).filter(x => x.home.ab === gnAb(lg, t.ab) || x.away.ab === gnAb(lg, t.ab)).sort((x, y) => (x.state === 'in' ? -1 : 0) - (y.state === 'in' ? -1 : 0) || Math.abs(Date.parse(x.start) - Date.now()) - Math.abs(Date.parse(y.start) - Date.now()))[0];
+      if (g) { L.lg = lg; L.game = g; L.key = t.name; } }
+  }));
+  const boxes = new Map();
+  await Promise.all([...new Set(legs.filter(L => L.game && L.game.state !== 'pre').map(L => L.lg + ':' + L.game.id))].map(async k => {
+    const [lg, id] = k.split(':'); try { boxes.set(k, gnBox(lg, await espn(`${LG_PATH[lg]}/summary?event=${id}`, 15000))); } catch (_) {}
+  }));
+  for (const L of legs) {
+    if (!L.game) { L.status = 'unknown'; continue; }
+    const g = L.game, box = boxes.get(L.lg + ':' + g.id) || {}, s = box[L.key] || box[norm(L.player)] || null;
+    L.v = g.state === 'pre' ? null : s ? gnValue(s, L.market) : 0; L.dnp = s?.dnp; L.min = s?.min;
+    const need = L.market === 'dd' ? 2 : L.market === 'td3' ? 3 : L.market === 'td' ? 1 : null;
+    const over = L.side === 'over', done = g.state === 'post';
+    if (g.state === 'pre') L.status = 'pre';
+    else if (L.dnp && done) L.status = 'void';
+    else if (need != null) L.status = L.v >= need ? 'hit' : done ? 'lost' : 'live';
+    else if (over) L.status = L.v > L.line ? 'hit' : done ? (L.v === L.line ? 'push' : 'lost') : 'live';
+    else L.status = L.v > L.line ? 'lost' : done ? (L.v === L.line ? 'push' : 'hit') : 'live';
+    if (L.status === 'live' && need == null && g.frac > 0.05) L.pace = L.v / g.frac;
+  }
+  for (const b of bets) {
+    const ls = b._legs, tracked = ls.filter(L => L.player);
+    b._lost = ls.find(L => L.status === 'lost'); b._hit = ls.filter(L => L.status === 'hit').length;
+    b._state = b._lost ? 'lost' : tracked.length === ls.length && ls.every(L => L.status === 'hit' || L.status === 'push' || L.status === 'void') ? 'won' : ls.some(L => L.status === 'live') ? 'live' : 'pre';
+  }
+  return { bets, boards, at: Date.now() };
+}
+function gnCss() {
+  if (document.getElementById('gnCss')) return;
+  const c = document.createElement('style'); c.id = 'gnCss';
+  c.textContent = `#bdGN{position:fixed;inset:0;z-index:60;background:#0B0F16;color:#E8EDF5;overflow-y:auto;padding:calc(env(safe-area-inset-top,0px) + 12px) 16px calc(env(safe-area-inset-bottom,0px) + 24px);font-size:15px}
+#bdGN .gn-top{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}
+#bdGN h1{font:800 28px var(--display,sans-serif);text-transform:uppercase;margin:0;letter-spacing:.02em}
+#bdGN .gn-sum{display:flex;gap:18px;flex-wrap:wrap;color:#93A0B5;font-size:13px;margin-bottom:14px} #bdGN .gn-sum b{color:#E8EDF5;font-size:18px;font-family:var(--display,sans-serif)}
+#bdGN .gn-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px}
+#bdGN .gn-bet{background:#161D29;border:1px solid #2C3647;border-radius:12px;padding:12px 14px}
+#bdGN .gn-bet[data-s=lost]{opacity:.55} #bdGN .gn-bet[data-s=won]{border-color:#3FCB82}
+#bdGN .gn-bh{display:flex;justify-content:space-between;gap:8px;align-items:baseline;margin-bottom:8px} #bdGN .gn-bh .t{font-weight:700} #bdGN .gn-bh .w{color:#93A0B5;font-size:13px;white-space:nowrap}
+#bdGN .gn-leg{padding:6px 0;border-top:1px solid #222B3A} #bdGN .gn-leg:first-of-type{border-top:0}
+#bdGN .gn-lt{display:flex;justify-content:space-between;gap:8px;font-size:14px} #bdGN .gn-lt .v{font-family:var(--display,sans-serif);font-size:22px;font-weight:800;line-height:1}
+#bdGN .gn-bar{height:7px;background:#222B3A;border-radius:4px;position:relative;margin:6px 0 3px;overflow:hidden} #bdGN .gn-bar i{position:absolute;left:0;top:0;bottom:0;border-radius:4px;background:#F2B544}
+#bdGN .gn-bar u{position:absolute;top:-2px;bottom:-2px;width:2px;background:#E8EDF5;opacity:.6}
+#bdGN .gn-ls{font-size:12px;color:#93A0B5;display:flex;justify-content:space-between;gap:8px}
+#bdGN .gn-leg[data-s=hit] .v,#bdGN .ok{color:#3FCB82} #bdGN .gn-leg[data-s=hit] .gn-bar i{background:#3FCB82} #bdGN .gn-leg[data-s=lost] .v,#bdGN .bad{color:#FF7A70} #bdGN .gn-leg[data-s=lost] .gn-bar i{background:#FF7A70}
+#bdGN .gn-games{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:8px;margin-top:18px}
+#bdGN .gn-g{background:#121823;border:1px solid #222B3A;border-radius:10px;padding:8px 10px;font-size:14px} #bdGN .gn-g.mine{border-color:#6E93FF}
+#bdGN .gn-g .r{display:flex;justify-content:space-between} #bdGN .gn-g .d{font-size:12px;color:#93A0B5;margin-top:3px} #bdGN .gn-g .d.live{color:#FF7A70;font-weight:600}
+#bdGN h2{font:700 14px sans-serif;text-transform:uppercase;letter-spacing:.08em;color:#93A0B5;margin:18px 0 8px}
+#bdGN button{background:#1D2533;color:#E8EDF5;border:1px solid #2C3647;border-radius:8px;padding:8px 12px;font-weight:600}`;
+  document.head.append(c);
+}
+function gnLegHtml(L) {
+  if (!L.player) return `<div class="gn-leg"><div class="gn-lt"><span>${esc(L.text)}</span></div><div class="gn-ls"><span>Can't follow this one live</span></div></div>`;
+  const nm = GN_NAME[L.market] || L.market, g = L.game;
+  const tag = L.market === 'td' ? '' : L.market === 'dd' || L.market === 'td3' ? '' : `${L.side === 'over' ? 'o' : 'u'}${L.line}`;
+  if (!g) return `<div class="gn-leg"><div class="gn-lt"><span>${esc(L.player)} ${tag} ${nm}</span></div><div class="gn-ls"><span>No game found today</span></div></div>`;
+  const tgt = L.market === 'dd' ? 2 : L.market === 'td3' ? 3 : L.market === 'td' ? 1 : L.line;
+  const pct = L.v == null ? 0 : Math.min(100, (L.v / Math.max(tgt, 0.5)) * 100), mark = L.side === 'under' ? 100 : Math.min(100, (L.line / Math.max(tgt, 0.5)) * 100);
+  const when = g.state === 'pre' ? new Date(g.start).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : g.detail;
+  const right = L.status === 'hit' ? '<span class="ok">✓ Hit</span>' : L.status === 'lost' ? '<span class="bad">✗ Lost</span>' : L.status === 'void' ? 'Did not play' : L.status === 'push' ? 'Push'
+    : L.pace != null ? `on pace for ${L.pace.toFixed(L.pace < 10 ? 1 : 0)}` : '';
+  const left = `${g.away.ab} ${g.away.score ?? ''} @ ${g.home.ab} ${g.home.score ?? ''} · ${when}${L.min != null && L.lg === 'nba' && g.state !== 'pre' ? ` · ${L.min} min` : ''}`;
+  return `<div class="gn-leg" data-s="${L.status}"><div class="gn-lt"><span>${esc(L.player)} <b>${tag}</b> ${nm}</span><span class="v">${L.v == null ? '—' : L.v}${['dd', 'td3'].includes(L.market) && L.v != null ? `<small style="font-size:13px;opacity:.7">/${tgt}</small>` : ''}</span></div>
+    <div class="gn-bar"><i style="width:${pct}%"></i>${L.side === 'over' && !['td', 'dd', 'td3'].includes(L.market) ? `<u style="left:calc(${mark}% - 1px)"></u>` : ''}</div>
+    <div class="gn-ls"><span>${esc(left)}</span><span>${right}</span></div></div>`;
+}
+function gnRender(D) {
+  const box = document.getElementById('bdGN'); if (!box) return;
+  const bets = D.bets.sort((a, b) => ({ live: 0, pre: 1, won: 2, lost: 3 }[a._state] - { live: 0, pre: 1, won: 2, lost: 3 }[b._state]));
+  const alive = bets.filter(b => b._state !== 'lost'), risk = bets.reduce((s, b) => s + (b.bonus ? 0 : Number(b.stake) || 0), 0), win = alive.reduce((s, b) => s + gnToWin(b), 0);
+  const mine = new Set(bets.flatMap(b => b._legs.filter(L => L.game).map(L => L.lg + ':' + L.game.id)));
+  const games = ['nba', 'nfl'].flatMap(lg => (D.boards[lg] || []).filter(g => g.state === 'in' || mine.has(lg + ':' + g.id) || (lg === 'nba' && etDate(g.start) === etDate(Date.now()))))
+    .sort((a, b) => (a.state === 'in' ? 0 : a.state === 'pre' ? 1 : 2) - (b.state === 'in' ? 0 : b.state === 'pre' ? 1 : 2) || Date.parse(a.start) - Date.parse(b.start));
+  box.querySelector('.body').innerHTML = `
+    <div class="gn-sum"><span>Open bets <b>${bets.length}</b></span><span>Still alive <b>${alive.length}</b></span><span>At risk <b>${gnMoney(risk)}</b></span><span>Live to win <b class="ok">${gnMoney(win)}</b></span><span>Updated ${new Date(D.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit' })}</span></div>
+    <div class="gn-grid">${bets.map(b => {
+      const n = b._legs.length, head = n > 1 ? `${b._hit}/${n} legs hit` : '';
+      const st = b._state === 'won' ? '<span class="ok">✓ Winner</span>' : b._state === 'lost' ? '<span class="bad">✗ Lost</span>' : head;
+      return `<div class="gn-bet" data-s="${b._state}"><div class="gn-bh"><span class="t">${n > 1 ? `${n}-leg ${esc(b.type || 'parlay')}` : esc(b._legs[0]?.player || b.label)} ${st ? '· ' + st : ''}</span><span class="w">$${esc(b.stake)} → ${gnMoney(gnToWin(b))} · ${Number(b.odds) > 0 ? '+' : ''}${esc(b.odds)}</span></div>${b._legs.map(gnLegHtml).join('')}</div>`; }).join('')
+      || '<p style="color:#93A0B5">No open bets right now. Log a bet and it shows up here with live stats.</p>'}</div>
+    <h2>Scores</h2>
+    <div class="gn-games">${games.map(g => `<div class="gn-g ${mine.has(g.lg + ':' + g.id) ? 'mine' : ''}"><div class="r"><span>${esc(g.away.ab)}</span><b>${g.state === 'pre' ? '' : esc(g.away.score ?? '')}</b></div><div class="r"><span>${esc(g.home.ab)}</span><b>${g.state === 'pre' ? '' : esc(g.home.score ?? '')}</b></div>
+      <div class="d ${g.state === 'in' ? 'live' : ''}">${g.lg.toUpperCase()} · ${g.state === 'pre' ? new Date(g.start).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' }) + (g.net ? ' · ' + esc(g.net) : '') : esc(g.detail)}</div></div>`).join('') || '<p style="color:#93A0B5">No games on right now.</p>'}</div>`;
+}
+async function gnTick() {
+  if (!GN.open) return;
+  try { const D = await gnLoad(); GN.last = D; gnRender(D); } catch (e) { console.error('game night', e); const s = document.querySelector('#bdGN .gn-sum span:last-child'); if (s) s.textContent = 'Could not refresh: retrying'; }
+  if (GN.open) GN.timer = setTimeout(gnTick, 20000);
+}
+async function gnWake() { try { if ('wakeLock' in navigator && GN.open && document.visibilityState === 'visible') GN.lock = await navigator.wakeLock.request('screen'); } catch (_) {} }
+function gnOpen() {
+  gnCss(); GN.open = true;
+  const box = document.createElement('div'); box.id = 'bdGN'; box.setAttribute('role', 'dialog'); box.setAttribute('aria-label', 'Game night');
+  box.innerHTML = `<div class="gn-top"><h1>Game night</h1><div style="display:flex;gap:8px">${(document.documentElement.requestFullscreen || document.documentElement.webkitRequestFullscreen) ? '<button type="button" data-a="full">Full screen</button>' : ''}<button type="button" data-a="x">Close</button></div></div><div class="body"><p style="color:#93A0B5">Loading your bets…</p></div>`;
+  document.body.append(box); document.body.style.overflow = 'hidden';
+  box.addEventListener('click', e => { const a = e.target.closest('[data-a]')?.dataset.a;
+    if (a === 'x') gnClose(); if (a === 'full') { const f = box.requestFullscreen || box.webkitRequestFullscreen; if (document.fullscreenElement) document.exitFullscreen?.(); else f?.call(box); } });
+  gnWake(); gnTick();
+}
+function gnClose() { GN.open = false; clearTimeout(GN.timer); try { GN.lock?.release(); } catch (_) {} GN.lock = null; if (document.fullscreenElement) document.exitFullscreen?.(); document.getElementById('bdGN')?.remove(); document.body.style.overflow = ''; }
+document.addEventListener('visibilitychange', () => { if (GN.open && document.visibilityState === 'visible') { gnWake(); clearTimeout(GN.timer); gnTick(); } });
+window.BD_gameNight = gnOpen;
+function gnButton() {
+  const sec = document.getElementById('tab-score'); const h = sec?.querySelector('.panel .row.spread'); if (!h || document.getElementById('gnBtn')) return;
+  const b = document.createElement('button'); b.id = 'gnBtn'; b.type = 'button'; b.className = 'primary'; b.textContent = 'Game night'; b.title = 'Full-screen live view of your open bets'; b.onclick = gnOpen;
+  h.append(b);
+}
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', gnButton); else gnButton();
 })();
