@@ -226,27 +226,51 @@ def slug(s):
     return re.sub(r'[^a-z0-9]+', '-', s).strip('-')
 
 
+def debias(pairs, min_n=8):
+    """pairs: [(model, market)]. Least-squares market ~ a + b*model over the slate, so a systematic squeeze (blowouts
+    projected too small, totals too low) is removed and only game-by-game disagreements are left. None if too few games."""
+    if len(pairs) < min_n:
+        return None
+    n = len(pairs); mx = sum(x for x, _ in pairs) / n; my = sum(y for _, y in pairs) / n
+    vx = sum((x - mx) ** 2 for x, _ in pairs)
+    b = sum((x - mx) * (y - my) for x, y in pairs) / vx if vx > 1e-9 else 1.0
+    b = min(2.0, max(0.5, b))
+    return my - b * mx, b
+
+
 def board(R, odds_doc, find=None):
     """Projections and calls for every game in the odds doc that both teams can be matched for."""
     find = find or matcher(R['teams'])
-    out = []
+    rows = []
     for g in (odds_doc or {}).get('games', []):
         hi, ai = find(g['home'], g.get('homeMascot')), find(g['away'], g.get('awayMascot'))
         if not hi or not ai or hi == ai:
             continue
         neutral = bool(g.get('neutral'))
         ph, pa = project(R, hi, ai, neutral)
+        rows.append((g, hi, ai, neutral, ph, pa))
+    # the market's line for each game: Pinnacle when it has one, else the book
+    mk_sp = lambda g: (g.get('spread') or {}).get('pinHome', (g.get('spread') or {}).get('home'))
+    mk_to = lambda g: (g.get('total') or {}).get('pinLine', (g.get('total') or {}).get('line'))
+    fs = debias([(ph - pa, -float(mk_sp(g))) for g, _, _, _, ph, pa in rows if mk_sp(g) is not None])
+    ft = debias([(ph + pa, float(mk_to(g))) for g, _, _, _, ph, pa in rows if mk_to(g) is not None])
+    out = []
+    for g, hi, ai, neutral, ph, pa in rows:
+        m_raw, t_raw = ph - pa, ph + pa
+        m = fs[0] + fs[1] * m_raw if fs else m_raw
+        t = ft[0] + ft[1] * t_raw if ft else t_raw
         sp, tot = g.get('spread') or {}, g.get('total') or {}
         calls = {}
-        c = call('spread', ph - pa, R['sdMargin'], sp.get('home'), sp.get('homeOdds'), sp.get('awayOdds'), sp.get('pinHome'), sp.get('pinHomeOdds'), sp.get('pinAwayOdds'))
+        c = call('spread', m, R['sdMargin'], sp.get('home'), sp.get('homeOdds'), sp.get('awayOdds'), sp.get('pinHome'), sp.get('pinHomeOdds'), sp.get('pinAwayOdds'))
         if c:
             calls['spread'] = c
-        c = call('total', ph + pa, R['sdTotal'], tot.get('line'), tot.get('overOdds'), tot.get('underOdds'), tot.get('pinLine'), tot.get('pinOver'), tot.get('pinUnder'))
+        c = call('total', t, R['sdTotal'], tot.get('line'), tot.get('overOdds'), tot.get('underOdds'), tot.get('pinLine'), tot.get('pinOver'), tot.get('pinUnder'))
         if c:
             calls['total'] = c
         H, A = R['teams'][hi], R['teams'][ai]
         out.append({'away': A['name'], 'home': H['name'], 'start': g.get('start'), 'neutral': neutral, 'book': g.get('book'),
-                    'proj': {'home': round(ph, 1), 'away': round(pa, 1), 'margin': round(ph - pa, 1), 'total': round(ph + pa, 1), 'gp': min(H['n'], A['n'])},
+                    'proj': {'home': round((t + m) / 2, 1), 'away': round((t - m) / 2, 1), 'margin': round(m, 1), 'total': round(t, 1),
+                             'rawMargin': round(m_raw, 1), 'rawTotal': round(t_raw, 1), 'gp': min(H['n'], A['n'])},
                     'calls': calls, 'ids': [ai, hi]})
     return out
 

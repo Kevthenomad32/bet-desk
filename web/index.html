@@ -745,7 +745,10 @@ function renderTracker(){
     tile('Net profit / loss', money(totalNet,true), `${done.length} settled bets${unitSize()?` · ${(totalNet>=0?'+':'−')}${Math.abs(totalNet/unitSize()).toFixed(1)}u`:''}`, totalNet>0?'pos':totalNet<0?'neg':''),
     tile('Return on money bet', realStaked? (totalNet>=0?'+':'')+pct(totalNet/realStaked):'—', `${money(realStaked)} of your own money settled`, totalNet>0?'pos':totalNet<0?'neg':''),
     tile('Record', `${W}–${L}${P?'–'+P:''}`, W+L? `${pct(W/(W+L))} of settled bets won`:'No settled bets yet'),
-    tile('Open bets', String(open.length), open.length? `${money(atRisk)} at risk · ${money(potential)} to win`:'Nothing pending', '')
+    tile('Open bets', String(open.length), open.length? `${money(atRisk)} at risk · ${money(potential)} to win`:'Nothing pending', ''),
+    (()=>{ const c=bets.filter(b=>b.clv!=null); const beat=c.filter(b=>b.clv>0||(b.clv===0&&(b.clvProb||0)>0)).length; const pe=c.filter(b=>b.clvProb!=null);
+      const avg=pe.length?pe.reduce((s,b)=>s+b.clvProb,0)/pe.length:null;
+      return tile('Beat the closing line', c.length?pct(beat/c.length):'—', c.length?`${beat} of ${c.length} single props${avg!=null?` · avg ${avg>=0?'+':''}${avg.toFixed(1)}% vs Pinnacle's closing price`:''}`:'Single prop bets get graded against the last line before the game', c.length?(beat/c.length>=0.5?'pos':'neg'):''); })()
   );
   { const bets = allBets, done = bets.filter(settled), W = bets.filter(b=>b.status==='won').length;  // everything below the tiles stays all-time
   // by type
@@ -792,7 +795,7 @@ function betRow(b){
         b.boost?el('span',{class:'chip win',text:`+${b.boost}% boost`}):null,
         b.book?el('span',{text:b.book}):null,
         b.settledBy==='auto'?el('span',{class:'chip',text:'Auto-settled'}):null,
-        b.clv!=null?el('span',{class:'chip '+(b.clv>0?'win':b.clv<0?'loss':''),title:b.closeLine!=null?'Closing line '+b.closeLine:'',text:'CLV '+(b.clv>0?'+':'')+b.clv}):null),
+        b.clv!=null?el('span',{class:'chip '+(b.clv>0?'win':b.clv<0?'loss':''),title:b.closeLine!=null?`Closed ${b.closeLine} (${b.closeOdds||''})`+(b.closeFair!=null?` · Pinnacle fair ${b.closeFair>0?'+':''}${b.closeFair}`:''):'',text:'CLV '+(b.clv>0?'+':'')+b.clv+(b.clvProb!=null?` · ${b.clvProb>0?'+':''}${b.clvProb}%`:'')}):null),
       b.note?el('div',{class:'small',style:'color:var(--warn)',text:b.note}):null,
       (b.status==='open'&&b.live)?el('div',{class:'small',style:'display:flex;gap:6px;align-items:baseline;flex-wrap:wrap'},el('span',{class:'chip acc',text:'Live'}),el('span',{text:b.live}),b.liveAt?el('span',{class:'muted num',text:'as of '+new Date(b.liveAt).toLocaleTimeString([], {hour:'numeric',minute:'2-digit'})}):null):null),
     moneyCol,

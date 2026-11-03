@@ -86,7 +86,7 @@ def test_parse(label, expect):
     assert [(l['player'], l['side'], l['line'], l['market']) for l in legs] == expect
 
 
-@pytest.mark.parametrize('label', ['Lakers/Portland Over 233.5', 'Cade Triple double', 'Suns team total o106.5 (PHX @ OKC)', '76ers ML (vs Pacers)'])
+@pytest.mark.parametrize('label', ['Lakers/Portland Over 233.5', 'Cade 2 steals and blocks', 'Suns team total o106.5 (PHX @ OKC)', '76ers ML (vs Pacers)'])
 def test_parse_gives_up(label):
     assert parse_label(label) is None
 
@@ -293,3 +293,12 @@ def test_sgo_guard(monkeypatch):
     assert ok is False and '2300/2500' in why          # daily line pulls pause
     monkeypatch.setenv('BETDESK_SKIP_ODDS', '1')
     assert sgo.guard(db, 'pregame')[0] is False        # code-update runs never pull odds
+
+
+def test_new_leg_types_grade():
+    from jobs.legs import grade, stat_value
+    legs = parse_label('Jokic 20+ pts, Giannis double-double, Cade Triple double, Caleb Williams o3.5 rush attempts, Z o1.5 pass TDs')
+    assert [(l['market'], l['line']) for l in legs] == [('pts', 19.5), ('dd', 0.5), ('td3', 0.5), ('car', 3.5), ('passTd', 1.5)]
+    jok = {'pts': 18, 'reb': 14, 'ast': 11, 'stl': 1, 'blk': 0}
+    assert grade(legs[0], stat_value(jok, 'pts')) == 'lost' and grade(legs[1], stat_value(jok, 'dd')) == 'won' and grade(legs[2], stat_value(jok, 'td3')) == 'won'
+    assert stat_value({'pass': 200}, 'car') is None  # stat not in the box score: left for Claude, not graded as 0

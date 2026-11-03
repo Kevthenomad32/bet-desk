@@ -143,3 +143,11 @@ If the Claude Bet Desk page changes and you want those changes here, save its HT
 - `supabase/functions/` — `espn` (scores/box scores), `claude` (slip reading), `jobs` (Refresh button), `statmuse` (Ask StatMuse)
 - `jobs/` — the scheduled jobs (`run.py` decides what's due; `model/` holds the v6 picks model, the NBA game-line model and the closing-line script, unchanged)
 - `tests/` — `pytest tests/` for the jobs; `tests/smoke/run_smoke.py` loads the page in a headless browser against a fake database
+
+## Value finder, closing line value, alerts
+
+- **Value finder** (NBA, NFL and CBB tabs): every Hard Rock price that beats Pinnacle's no-vig fair price at the same line, rebuilt at the end of every hourly run (`jobs/value.py`, the `value` doc). It doesn't use the model.
+- **Closing line value**: each hour the last line before every game is saved (`closeSnap`). Once a game starts, your single prop bets get `closeLine`, `clv` (points beaten) and `clvProb` (% edge vs Pinnacle's closing fair price). The Tracker's "Beat the closing line" tile sums it up.
+- **Phone alerts** (ntfy, needs the `NTFY_TOPIC` secret): best bets locked, one leg away, the Monday recap, and Hard Rock prices 5%+ better than fair within 4 hours of the game.
+- **Grading** reads more slip wording: "20+ points", double-doubles, triple-doubles, rush attempts, pass TDs, completions, rush + rec yards. Anything it can't read still goes to Claude.
+- **Ideas and bugs**: open a GitHub Issue (templates included) and they get worked through at check-ins.

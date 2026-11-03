@@ -118,7 +118,7 @@ const sxWeek = d => { const t = new Date(d + 'T12:00'); const k = new Date(t); k
 async function renderSixtyFor(lg) {
   const cfg = SX[lg], tab = document.getElementById(cfg.tab); if (!tab) return;
   let box = tab.querySelector('.bd-sixty');
-  if (!box) { box = document.createElement('div'); box.className = 'panel bd-sixty'; const first = tab.querySelector('.panel'); first ? first.after(box) : tab.prepend(box); box.innerHTML = `<h2>${cfg.title}</h2><p class="small muted">Loading…</p>`; }
+  if (!box) { box = document.createElement('div'); box.className = 'panel bd-sixty'; const first = tab.querySelector('.bd-value') || tab.querySelector('.panel'); first ? first.after(box) : tab.prepend(box); box.innerHTML = `<h2>${cfg.title}</h2><p class="small muted">Loading…</p>`; }
   const me = (await getSession()).user.id;
   let q = sb.from('docs').select('id,data').eq('uid', me).eq('coll', cfg.coll); if (cfg.league) q = q.eq('data->>league', cfg.league);
   const [{ data: led }, { data: st }] = await Promise.all([q, sb.from('docs').select('data').eq('uid', me).eq('coll', '').eq('id', 'settings').maybeSingle()]);
@@ -150,8 +150,35 @@ async function renderSixtyFor(lg) {
     <details><summary class="small">Every graded pick (${done.length})</summary><div class="tablewrap" style="margin-top:8px"><table><tr><th>Date</th><th>Pick</th><th class="r">Result</th><th class="r">Price</th></tr>${
       done.sort((x, y) => String(y.date).localeCompare(String(x.date)) || y.conf - x.conf).map(r => `<tr><td class="small muted">${String(r.date).slice(5)}</td><td>${esc(r.label)} <span class="small muted">${sxPct(r.conf)}</span></td><td class="r num ${r.res === 'push' ? '' : r.res === 'hit' ? 'pos' : 'neg'}">${esc(r.shown ?? '')} ${r.res === 'push' ? 'P' : r.res === 'hit' ? '✓' : '✗'}</td><td class="r num">${sxAm(r.odds)}</td></tr>`).join('')}</table></div></details>`;
 }
+// ---------- Value finder: Hard Rock prices that beat Pinnacle's no-vig fair price (the 'value' doc, rebuilt every hour) ----------
+const VAL_LG = { nfl: 'tab-nfl', nba: 'tab-nba', cbb: 'tab-cbb' };
+async function renderValueFor(lg) {
+  const tab = document.getElementById(VAL_LG[lg]); if (!tab) return;
+  let box = tab.querySelector('.bd-value');
+  if (!box) { box = document.createElement('div'); box.className = 'panel bd-value'; const first = tab.querySelector('.panel'); first ? first.after(box) : tab.prepend(box); box.innerHTML = '<h2>Value finder</h2><p class="small muted">Loading…</p>'; }
+  const me = (await getSession()).user.id;
+  const { data } = await sb.from('docs').select('data').eq('uid', me).eq('coll', '').eq('id', 'value').maybeSingle();
+  const V = data?.data, now = Date.now();
+  const rows = (V?.rows || []).filter(r => r.lg === lg && Date.parse(r.start) > now);
+  let kind = 'all'; try { kind = localStorage.getItem('bd-valkind-' + lg) || 'all'; } catch (_) {}
+  const kinds = lg === 'cbb' ? [] : [['all', 'All'], ['prop', 'Props'], ['game', 'Game lines']];
+  const shown = rows.filter(r => kind === 'all' || (kind === 'prop' ? r.kind === 'prop' : r.kind !== 'prop'));
+  const when = iso => new Date(iso).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' });
+  box.innerHTML = `<div class="row spread"><h2>Value finder</h2>${kinds.length ? `<div class="filters bd-val-kind">${kinds.map(([k, n]) => `<button type="button" data-k="${k}" aria-pressed="${k === kind}">${n}</button>`).join('')}</div>` : ''}</div>
+    <p class="small muted">Hard Rock prices that are better than Pinnacle's fair price at the same line (Pinnacle is the sharpest book; "fair" is its price with the house cut taken out). This doesn't use the model at all, and it's the most reliable edge there is. Edges move fast: check the price on Hard Rock first. ${V ? 'Updated ' + new Date(V.updated).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) + '.' : ''}</p>
+    <div class="tablewrap"><table><tr><th>Bet</th><th>Game</th><th class="r">Hard Rock</th><th class="r">Fair</th><th class="r">Edge</th></tr>${
+      shown.slice(0, 30).map(r => `<tr><td><b>${esc(r.label)}</b>${r.avg != null ? ` <span class="small muted">avg ${esc(r.avg)}</span>` : ''}</td><td class="small muted">${esc(r.game)} · ${when(r.start)}</td><td class="r num">${esc(r.price)}</td><td class="r num">${r.fair > 0 ? '+' : ''}${r.fair}</td><td class="r num pos">+${(r.ev * 100).toFixed(1)}%</td></tr>`).join('')
+      || `<tr><td colspan="5" class="muted">${V ? 'No Hard Rock prices beat Pinnacle right now. Check back closer to game time.' : 'The value list fills in at the next hourly update.'}</td></tr>`}</table></div>
+    ${shown.length > 30 ? `<p class="small muted">Showing the best 30 of ${shown.length}.</p>` : ''}`;
+}
+window.BD_renderValue = lg => renderValueFor(lg).catch(e => console.error('value finder', lg, e));
+document.addEventListener('click', e => { const b = e.target.closest && e.target.closest('.bd-val-kind button'); if (!b) return; const lg = Object.keys(VAL_LG).find(k => b.closest('#' + VAL_LG[k]));
+  try { localStorage.setItem('bd-valkind-' + lg, b.dataset.k); } catch (_) {} window.BD_renderValue(lg); });
 window.BD_renderSixty = lg => renderSixtyFor(lg).catch(e => console.error('60% tracker', lg, e));
-function sixtyForVisible() { for (const lg of Object.keys(SX)) { const t = document.getElementById(SX[lg].tab); if (t && !t.hidden) window.BD_renderSixty(lg); } }
+function sixtyForVisible() { for (const lg of Object.keys(SX)) { const t = document.getElementById(SX[lg].tab); if (t && !t.hidden) { if (VAL_LG[lg]) window.BD_renderValue(lg); window.BD_renderSixty(lg); } } }
+function valueForVisibleNba() { const t = document.getElementById('tab-nba'); if (t && !t.hidden) window.BD_renderValue('nba'); }
+document.addEventListener('click', e => { if (e.target.closest && e.target.closest('nav.tabs button')) setTimeout(valueForVisibleNba, 50); });
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => setTimeout(valueForVisibleNba, 500)); else setTimeout(valueForVisibleNba, 500);
 document.addEventListener('click', e => { if (e.target.closest && e.target.closest('nav.tabs button')) setTimeout(sixtyForVisible, 50); });
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => setTimeout(sixtyForVisible, 500)); else setTimeout(sixtyForVisible, 500);
 // ---------- "Ask Claude": a chat panel on every tab; Claude answers from Kev's bets, tonight's lines and the model (claude function, mode 'chat') ----------

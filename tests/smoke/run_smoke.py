@@ -17,6 +17,9 @@ backup['docs'] += [
         {'away': 'Duke', 'home': 'Kansas', 'start': '2026-11-04T00:30:00Z', 'neutral': True, 'proj': {'margin': 2.1, 'total': 151.4, 'gp': 1},
          'calls': {'spread': call('home', -1.5, -110, 0.531, True), 'total': call('under', 152.5, -108, 0.512, False)}}]}},
     {'coll': 'ledger/cbbgl', 'id': 'cbb-2026-11-03-x-at-y', 'data': {'calls': {'spread': call('away', 3.5, -110, 0.54, True, 'won')}}}]
+backup['docs'] += [{'coll': '', 'id': 'value', 'data': {'updated': '2026-11-03T20:00:00Z', 'rows': [
+    {'lg': 'nba', 'game': 'Celtics @ Knicks', 'start': '2099-01-01T00:30:00Z', 'kind': 'prop', 'label': 'Jalen Brunson over 26.5 points', 'price': '+105', 'fair': -100, 'fairP': 0.5, 'ev': 0.025, 'avg': 27.1},
+    {'lg': 'cbb', 'game': 'Duke @ Kansas', 'start': '2099-01-01T00:30:00Z', 'kind': 'spread', 'label': 'Kansas -1.5', 'price': '+100', 'fair': -104, 'fairP': 0.51, 'ev': 0.02}]}}]
 ESPN_SB = {'events': [{'id': '401', 'date': '2026-10-29T23:30:00Z', 'season': {'year': 2027, 'type': 2},
                        'status': {'type': {'state': 'in', 'name': 'STATUS_IN_PROGRESS', 'shortDetail': 'Q3 5:12'}},
                        'competitions': [{'broadcasts': [{'names': ['ESPN']}], 'competitors': [
@@ -87,6 +90,7 @@ with sync_playwright() as p:
     pg.fill('#st-unit', '50'); pg.click('#st-save'); pg.wait_for_timeout(500)
     res['wrote_settings'] = pg.evaluate("window.__WRITES.some(w=>w.id==='settings'&&w.data.unit===50)")
     pg.click('#t-nba'); pg.wait_for_timeout(1500)
+    pg.wait_for_timeout(800); res['nba_value'] = pg.inner_text('#tab-nba .bd-value')[-220:].replace('\n', ' | ')
     res['sixty_tiles'] = pg.inner_text('#sixtyTiles').replace('\n', ' | ')[:200]
     res['ngl_src'] = pg.inner_text('#nglSrc')
     pg.click('#t-nfl'); pg.wait_for_timeout(800)
@@ -111,6 +115,7 @@ with sync_playwright() as p:
     res['chat_btn_back'] = pg.is_visible('#bdChatBtn')
     pg.click('#t-cbb'); pg.wait_for_timeout(800)
     pg.click('#tab-cbb .bd-sx-bar button[data-b="0.53"]'); pg.wait_for_timeout(500)
+    res['cbb_order'] = pg.evaluate("[...document.querySelectorAll('#tab-cbb > .panel')].map(p=>p.id||p.className)")
     res['cbb60'] = pg.inner_text('#tab-cbb .bd-sixty')[:500].replace('\n', ' | ')
     res['cbb'] = pg.inner_text('#cbbPanel')[:600].replace('\n', ' | ')
     pg.click('#t-tracker'); pg.wait_for_timeout(300)

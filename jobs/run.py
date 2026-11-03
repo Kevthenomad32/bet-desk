@@ -8,7 +8,7 @@ import datetime as dt
 import sys
 import traceback
 
-from . import calibrate, cbb, data_jobs, espn, ledger_jobs, model_jobs, stats
+from . import calibrate, cbb, data_jobs, espn, ledger_jobs, model_jobs, stats, value
 from .common import DB, now_et, now_utc
 
 JOBS = {
@@ -17,7 +17,7 @@ JOBS = {
     'injuries': data_jobs.injuries_job, 'cfb_lines': data_jobs.cfb_lines,
     'rundown_probe': lambda db: __import__('jobs.rundown', fromlist=['probe']).probe(db),
     'cbb_daily': cbb.daily, 'cbbgl': cbb.pregame, 'cbb_settle': cbb.settle,
-    'calibrate': calibrate.run, 'settle': ledger_jobs.settle, 'closing': ledger_jobs.closing, 'recap': ledger_jobs.recap, 'live': ledger_jobs.live,
+    'calibrate': calibrate.run, 'value': value.run, 'settle': ledger_jobs.settle, 'closing': ledger_jobs.closing, 'recap': ledger_jobs.recap, 'live': ledger_jobs.live,
 }
 
 
@@ -110,11 +110,9 @@ def main(argv):
         raise
     if name == 'backfill':
         return 0 if backfill(db) else 1
-    jobs = due_now() if name == 'tick' else [name]
+    jobs = due_now() + ['value'] if name == 'tick' else [name]  # value: closing snapshot, CLV and value finder after every tick
     if name != 'tick' and name not in JOBS:
         raise SystemExit(f'unknown job {name}; choose from tick, backfill, {", ".join(JOBS)}')
-    if not jobs:
-        print('Nothing due this hour.')
     ok = all([run(db, j) for j in jobs])
     return 0 if ok else 1
 

@@ -84,3 +84,11 @@ def test_far_from_market_is_flagged_not_a_lean():
     assert c['far'] and not c['lean']
     c2 = cbb.call('spread', 9.0, 10.8, -7.5, '-110', '-110', -7.5, '-105', '-105')
     assert not c2['far']
+
+
+def test_debias_removes_a_slate_wide_squeeze():
+    # model margins are 60% of the market's and totals 5 low, everywhere: after debiasing, no game is a call
+    mk = [3, 7, 12, 18, 25, 33, 41, 9, 15, 21]
+    a, b = cbb.debias([(0.6 * x, x) for x in mk])
+    assert abs(b - 1 / 0.6) < 1e-6 and abs(a) < 1e-6
+    assert cbb.debias([(1, 2)] * 3) is None
