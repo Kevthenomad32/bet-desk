@@ -60,7 +60,7 @@ def made_att(v):
 
 # ---------- schedule / scores ----------
 def scoreboard(lg, dates=None, **extra):
-    params = dict(limit=400, **extra)
+    params = {"limit": 400, **extra}
     if dates:
         params['dates'] = dates
     j = get(f'{PATH[lg]}/scoreboard', **params)

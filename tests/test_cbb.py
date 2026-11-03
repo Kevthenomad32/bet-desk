@@ -59,3 +59,11 @@ def test_board_from_rundown_doc():
     assert len(rows) == 1 and set(rows[0]['calls']) == {'spread', 'total'}
     docs = cbb.lock_docs(rows, '2026-12-01T23:00:00Z', '2026-12-02T01:00:00Z')
     assert list(docs) == ['cbb-2026-12-01-school-c-at-school-b']
+
+
+def test_scoreboard_accepts_limit(monkeypatch):
+    from jobs import espn
+    seen = {}
+    monkeypatch.setattr(espn, 'get', lambda path, **p: seen.update(p) or {'events': []})
+    espn.scoreboard('cbb', '20261103', groups=50, limit=500)
+    assert seen.get('limit') == 500 and seen.get('groups') == 50
