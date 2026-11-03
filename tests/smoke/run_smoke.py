@@ -56,6 +56,10 @@ with sync_playwright() as p:
             return r.fulfill(body=json.dumps({'type': 'stats', 'answer': 'Jalen Brunson averaged 27.2 points in his last 5 games.',
                 'table': {'columns': ['player', 'PointsPerGame'], 'rows': [['Jalen Brunson', '27.2']]}, 'quota': {'limit': '10000', 'remaining': '9876'}}),
                 content_type='application/json')
+        if '/functions/v1/claude' in u:
+            body = json.loads(r.request.post_data); asked.append(body)
+            if body.get('mode') == 'chat':
+                return r.fulfill(body=json.dumps({'reply': 'This week you are **2–3**.\n\n| Bet | Result |\n|---|---|\n| Trae o9.5 ast | lost |'}), content_type='application/json')
         if '/functions/v1/espn' in u:
             return r.fulfill(body=json.dumps(ESPN_SUM if 'summary' in u else ESPN_SB), content_type='application/json')
         if u.startswith('http://app.test/'):
@@ -99,7 +103,12 @@ with sync_playwright() as p:
     pg.click('#t-tracker'); pg.wait_for_timeout(500)
     pg.click('#t-nba'); pg.wait_for_timeout(300)
     res['ask_gone'] = pg.evaluate("document.querySelector('.bd-ask') === null")
-    res['ask_sent'] = asked
+    pg.click('#bdChatBtn'); pg.fill('#bdChat textarea', 'How am I doing this week?'); pg.click('#bdChat form button'); pg.wait_for_timeout(600)
+    res['chat'] = pg.inner_text('#bdChat .log').replace('\n', ' | ')[-200:]
+    res['chat_sent'] = [a.get('mode') for a in asked], asked[-1]['messages'][-1] if asked else None
+    if os.environ.get('CHATSHOT'): pg.set_viewport_size({'width': 390, 'height': 800}); pg.wait_for_timeout(300); pg.screenshot(path=os.environ['CHATSHOT'])
+    pg.click('#bdChat [data-a=close]')
+    res['chat_btn_back'] = pg.is_visible('#bdChatBtn')
     pg.click('#t-cbb'); pg.wait_for_timeout(800)
     pg.click('#tab-cbb .bd-sx-bar button[data-b="0.53"]'); pg.wait_for_timeout(500)
     res['cbb60'] = pg.inner_text('#tab-cbb .bd-sixty')[:500].replace('\n', ' | ')

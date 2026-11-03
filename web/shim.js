@@ -154,6 +154,69 @@ window.BD_renderSixty = lg => renderSixtyFor(lg).catch(e => console.error('60% t
 function sixtyForVisible() { for (const lg of Object.keys(SX)) { const t = document.getElementById(SX[lg].tab); if (t && !t.hidden) window.BD_renderSixty(lg); } }
 document.addEventListener('click', e => { if (e.target.closest && e.target.closest('nav.tabs button')) setTimeout(sixtyForVisible, 50); });
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => setTimeout(sixtyForVisible, 500)); else setTimeout(sixtyForVisible, 500);
+// ---------- "Ask Claude": a chat panel on every tab; Claude answers from Kev's bets, tonight's lines and the model (claude function, mode 'chat') ----------
+function mdLite(t) {
+  const lines = esc(t).split('\n'), out = []; let tbl = null;
+  const inline = s => s.replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/`([^`]+)`/g, '<code>$1</code>');
+  const flush = () => { if (!tbl) return; const rows = tbl.filter(r => !/^\s*\|?\s*:?-{2,}/.test(r)).map(r => r.replace(/^\s*\||\|\s*$/g, '').split('|').map(c => inline(c.trim())));
+    out.push(`<div class="tablewrap"><table>${rows.map((r, i) => `<tr>${r.map(c => i ? `<td>${c}</td>` : `<th>${c}</th>`).join('')}</tr>`).join('')}</table></div>`); tbl = null; };
+  for (const l of lines) {
+    if (/^\s*\|.*\|\s*$/.test(l)) { (tbl = tbl || []).push(l); continue; }
+    flush();
+    if (/^\s*[-*] /.test(l)) out.push(`<div style="padding-left:14px;text-indent:-10px">• ${inline(l.replace(/^\s*[-*] /, ''))}</div>`);
+    else if (/^#{1,4} /.test(l)) out.push(`<div style="font-weight:700;margin-top:6px">${inline(l.replace(/^#+ /, ''))}</div>`);
+    else out.push(l.trim() ? `<div>${inline(l)}</div>` : '<div style="height:6px"></div>');
+  }
+  flush(); return out.join('');
+}
+function addChat() {
+  if (C.claudeEnabled === false || document.getElementById('bdChatBtn')) return;
+  const css = document.createElement('style');
+  css.textContent = `#bdChatBtn{position:fixed;right:16px;z-index:30;border-radius:999px;padding:12px 18px;font-weight:700;box-shadow:0 6px 20px rgba(0,0,0,.25)}
+#bdChat{position:fixed;right:16px;z-index:31;width:min(420px,calc(100vw - 32px));height:min(620px,calc(100dvh - 120px));display:flex;flex-direction:column;background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,.3);overflow:hidden}
+#bdChat[hidden]{display:none}
+#bdChat .hd{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid var(--line)}
+#bdChat .log{flex:1;overflow-y:auto;padding:12px 14px;display:flex;flex-direction:column;gap:10px;font-size:14px;line-height:1.45}
+#bdChat .m{max-width:92%;padding:8px 11px;border-radius:10px;overflow-wrap:anywhere}
+#bdChat .m.u{align-self:flex-end;background:var(--accent);color:var(--accent-ink)}
+#bdChat .m.a{align-self:flex-start;background:var(--sunk)}
+#bdChat .m table{font-size:12px;margin:6px 0} #bdChat .m td,#bdChat .m th{padding:3px 6px}
+#bdChat form{display:flex;gap:8px;padding:10px;border-top:1px solid var(--line)}
+#bdChat textarea{flex:1;min-height:40px;max-height:120px;resize:none;font:inherit;font-size:16px}`;
+  document.head.append(css);
+  const btn = document.createElement('button'); btn.id = 'bdChatBtn'; btn.type = 'button'; btn.className = 'primary'; btn.textContent = 'Ask Claude';
+  const box = document.createElement('div'); box.id = 'bdChat'; box.hidden = true; box.setAttribute('role', 'dialog'); box.setAttribute('aria-label', 'Ask Claude');
+  box.innerHTML = `<div class="hd"><b>Ask Claude</b><div class="row" style="gap:6px"><button type="button" class="ghost small" data-a="clear">Clear</button><button type="button" class="ghost small" data-a="close" aria-label="Close">✕</button></div></div>
+    <div class="log" aria-live="polite"></div>
+    <form><textarea rows="1" placeholder="Ask about lines, bets, the model…" aria-label="Message"></textarea><button type="submit" class="primary small">Send</button></form>`;
+  document.body.append(btn, box);
+  const log = box.querySelector('.log'), ta = box.querySelector('textarea'), send = box.querySelector('form button');
+  let hist = []; try { hist = JSON.parse(localStorage.getItem('bd-chat') || '[]'); } catch (_) {}
+  const save = () => { try { localStorage.setItem('bd-chat', JSON.stringify(hist.slice(-30))); } catch (_) {} };
+  const bubble = m => { const d = document.createElement('div'); d.className = 'm ' + (m.role === 'user' ? 'u' : 'a'); d.innerHTML = m.role === 'user' ? esc(m.content).replace(/\n/g, '<br>') : mdLite(m.content); log.append(d); log.scrollTop = log.scrollHeight; return d; };
+  const draw = () => { log.replaceChildren(); if (!hist.length) bubble({ role: 'assistant', content: "Hey Kev. I can see your logged bets, tonight's Hard Rock lines with Pinnacle's prices, the model's numbers and the injury reports. Ask me anything, like **\"Any NBA unders the model and Pinnacle agree on tonight?\"** or **\"How am I doing this week?\"**" }); hist.forEach(bubble); };
+  const place = () => { const sb = document.getElementById('slipBar'); const off = sb && !sb.hidden && sb.offsetHeight ? sb.offsetHeight + 12 : 16;
+    btn.style.bottom = `calc(${off}px + env(safe-area-inset-bottom,0px))`; box.style.bottom = `calc(${off}px + env(safe-area-inset-bottom,0px))`; };
+  const open = v => { box.hidden = !v; btn.hidden = v; place(); if (v) { draw(); setTimeout(() => ta.focus(), 50); } };
+  btn.onclick = () => open(true);
+  box.addEventListener('click', e => { const a = e.target.closest('[data-a]')?.dataset.a; if (a === 'close') open(false); if (a === 'clear') { hist = []; save(); draw(); } });
+  ta.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); box.querySelector('form').requestSubmit(); } });
+  box.querySelector('form').addEventListener('submit', async e => {
+    e.preventDefault(); const q = ta.value.trim(); if (!q || send.disabled) return;
+    hist.push({ role: 'user', content: q }); save(); bubble(hist[hist.length - 1]); ta.value = '';
+    send.disabled = true; const wait = bubble({ role: 'assistant', content: 'Thinking…' });
+    try {
+      const r = await fetch(FN('claude'), { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + await token(), apikey: C.supabaseAnonKey },
+        body: JSON.stringify({ mode: 'chat', messages: hist.slice(-16) }) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.reply) throw new Error(j.error || `Claude unavailable (${r.status})`);
+      hist.push({ role: 'assistant', content: j.reply }); save(); wait.innerHTML = mdLite(j.reply);
+    } catch (err) { wait.textContent = 'Couldn\'t reach Claude: ' + err.message; hist.pop(); save(); ta.value = q; }
+    send.disabled = false; log.scrollTop = log.scrollHeight;
+  });
+  new MutationObserver(place).observe(document.body, { attributes: true, subtree: true, attributeFilter: ['hidden', 'class'] }); place();
+}
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', addChat); else addChat();
 // ---------- CBB tab: the cbbBoard doc (today's lines, projections, calls) + the season record from ledger/cbbgl ----------
 window.BD_renderCbb = async () => {
   const box = document.getElementById('cbbPanel'); if (!box) return;
