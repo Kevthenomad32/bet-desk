@@ -303,3 +303,31 @@ def fetch_doc(lg, a, b, players, team_of=None):
         evs += [e for e in events(lg, d, GAME_MARKETS + list(mk)) if e.get('event_date') and A <= parse_iso(e['event_date']) < B]
         d += dt.timedelta(days=1)
     return build(lg, evs, players, team_of, mk)
+
+
+def probe(db):
+    """Diagnostics: stores a trimmed raw sample of today's NBA and NFL responses in the 'rundownProbe' doc."""
+    today = dt.datetime.now(ET).date(); out = {}
+    for lg, mk in (('nba', [1, 2, 3, 29, 93]), ('nfl', [1, 2, 3])):
+        try:
+            evs = events(lg, today, mk)
+        except RundownError as e:
+            out[lg] = {'error': str(e)}; continue
+        def trim(e):
+            e = dict(e); ms = []
+            for m in (e.get('markets') or [])[:6]:
+                m = dict(m); m['participants'] = [dict(p, lines=(p.get('lines') or [])[:2]) for p in (m.get('participants') or [])[:4]]
+                ms.append(m)
+            e['markets'] = ms
+            return e
+        out[lg] = {'events': len(evs), 'sample': [trim(e) for e in evs[:2]],
+                   'statuses': sorted({((e.get('score') or {}).get('event_status') or '') for e in evs}),
+                   'market_ids': sorted({m.get('market_id') for e in evs for m in e.get('markets') or []})}
+    try:
+        ms = get(f'/sports/markets/{today.isoformat()}', offset=et_offset(today))
+        out['nfl_markets'] = [{k: m.get(k) for k in ('id', 'name', 'short_description', 'period_id', 'proposition')} for m in (ms.get('2') or [])][:80]
+    except RundownError as e:
+        out['nfl_markets'] = str(e)
+    out['points'] = usage['points']
+    db.set('rundownProbe', out)
+    return f"probe: nba {out.get('nba', {}).get('events')} events, nfl {out.get('nfl', {}).get('events')} events"

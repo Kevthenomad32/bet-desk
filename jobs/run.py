@@ -15,6 +15,7 @@ JOBS = {
     'pregame': model_jobs.pregame, 'nbagl': model_jobs.nbagl,
     'nba_daily': data_jobs.nba_daily, 'nfl_weekly': data_jobs.nfl_weekly, 'nfl_lines': lambda db: data_jobs.nfl_lines(db),
     'injuries': data_jobs.injuries_job, 'cfb_lines': data_jobs.cfb_lines,
+    'rundown_probe': lambda db: __import__('jobs.rundown', fromlist=['probe']).probe(db),
     'cbb_daily': cbb.daily, 'cbbgl': cbb.pregame, 'cbb_settle': cbb.settle,
     'calibrate': calibrate.run, 'settle': ledger_jobs.settle, 'closing': ledger_jobs.closing, 'recap': ledger_jobs.recap, 'live': ledger_jobs.live,
 }
