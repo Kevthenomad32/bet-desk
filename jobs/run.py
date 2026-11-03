@@ -9,7 +9,7 @@ import sys
 import traceback
 
 from . import calibrate, cbb, data_jobs, espn, ledger_jobs, model_jobs, stats, value
-from .common import DB, now_et, now_utc
+from .common import DB, notify, now_et, now_utc
 
 JOBS = {
     'pregame': model_jobs.pregame, 'nbagl': model_jobs.nbagl,
@@ -17,7 +17,9 @@ JOBS = {
     'injuries': data_jobs.injuries_job, 'cfb_lines': data_jobs.cfb_lines,
     'rundown_probe': lambda db: __import__('jobs.rundown', fromlist=['probe']).probe(db),
     'cbb_daily': cbb.daily, 'cbbgl': cbb.pregame, 'cbb_settle': cbb.settle,
-    'calibrate': calibrate.run, 'value': value.run, 'settle': ledger_jobs.settle, 'closing': ledger_jobs.closing, 'recap': ledger_jobs.recap, 'live': ledger_jobs.live,
+    'calibrate': calibrate.run, 'value': value.run,
+    'ping': lambda db: (notify('Bet Desk test', "Phone alerts are working. You'll get value prices, locked best bets, one-leg-away parlays and the Monday recap here."),
+                        'test alert sent' if __import__('os').environ.get('NTFY_TOPIC') else 'NTFY_TOPIC secret not found')[1], 'settle': ledger_jobs.settle, 'closing': ledger_jobs.closing, 'recap': ledger_jobs.recap, 'live': ledger_jobs.live,
 }
 
 
