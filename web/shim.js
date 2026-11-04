@@ -509,9 +509,21 @@ const GN_MKT = [[/p\s*\+\s*r\s*\+\s*a|\bpra\b|points\s*\+\s*rebounds\s*\+\s*assi
   [/pass/i, 'pass'], [/rush/i, 'rush'], [/receptions|\brecs\b|catches/i, 'recs'], [/rec|receiv/i, 'rec']];
 const GN_NAME = { pts: 'PTS', reb: 'REB', ast: 'AST', fg3: '3PM', stl: 'STL', blk: 'BLK', pra: 'PRA', pr: 'P+R', pa: 'P+A', ra: 'R+A', pass: 'Pass yds', rush: 'Rush yds', rec: 'Rec yds',
   recs: 'Rec', car: 'Rush att', att: 'Pass att', cmp: 'Comp', passTd: 'Pass TD', int: 'INT', rr: 'Rush+Rec yds', td: 'Anytime TD', dd: 'Double-double', td3: 'Triple-double' };
+const GN_TEAMS = { nba: { ATL: 'Hawks', BOS: 'Celtics', BKN: 'Nets', CHA: 'Hornets', CHI: 'Bulls', CLE: 'Cavaliers', DAL: 'Mavericks', DEN: 'Nuggets', DET: 'Pistons', GSW: 'Warriors', HOU: 'Rockets', IND: 'Pacers', LAC: 'Clippers', LAL: 'Lakers', MEM: 'Grizzlies', MIA: 'Heat', MIL: 'Bucks', MIN: 'Timberwolves', NOP: 'Pelicans', NYK: 'Knicks', OKC: 'Thunder', ORL: 'Magic', PHI: '76ers', PHX: 'Suns', POR: 'Trail Blazers', SAC: 'Kings', SAS: 'Spurs', TOR: 'Raptors', UTA: 'Jazz', WAS: 'Wizards' },
+  nfl: { ARI: 'Cardinals', ATL: 'Falcons', BAL: 'Ravens', BUF: 'Bills', CAR: 'Panthers', CHI: 'Bears', CIN: 'Bengals', CLE: 'Browns', DAL: 'Cowboys', DEN: 'Broncos', DET: 'Lions', GB: 'Packers', HOU: 'Texans', IND: 'Colts', JAX: 'Jaguars', KC: 'Chiefs', LAC: 'Chargers', LAR: 'Rams', LV: 'Raiders', MIA: 'Dolphins', MIN: 'Vikings', NE: 'Patriots', NO: 'Saints', NYG: 'Giants', NYJ: 'Jets', PHI: 'Eagles', PIT: 'Steelers', SEA: 'Seahawks', SF: '49ers', TB: 'Buccaneers', TEN: 'Titans', WAS: 'Commanders' } };
+// 'Knicks' / 'New York Knicks' / 'NYK' -> [{lg, ab, name}] (a nickname can exist in both leagues: Cardinals is NFL only, Kings NBA only, so few clashes)
+function gnTeam(s) {
+  const n = norm(s); if (!n) return null; const out = [];
+  for (const lg of ['nba', 'nfl']) for (const [ab, nick] of Object.entries(GN_TEAMS[lg])) { const k = norm(nick); if (n === k || n.endsWith(' ' + k) || n === ab.toLowerCase()) out.push({ lg, ab, name: nick }); }
+  return out.length ? out : null;
+}
 const GN_NBA = new Set(['pts', 'reb', 'ast', 'fg3', 'stl', 'blk', 'pra', 'pr', 'pa', 'ra', 'dd', 'td3']);
 function gnLeg(t) {
   t = t.trim(); if (!t) return { text: t };
+  let tm = t.match(/^(.+?)\s+(?:ml|moneyline|to win)\s*$/i);
+  if (tm && gnTeam(tm[1])) return { text: t, team: gnTeam(tm[1]), kind: 'ml', line: 0 };
+  tm = t.match(/^(.+?)\s+([+-]\d+(?:\.\d+)?)\s*(?:spread|pts)?\s*$/i);
+  if (tm && gnTeam(tm[1])) return { text: t, team: gnTeam(tm[1]), kind: 'spread', line: +tm[2] };
   let m = t.match(/^(.+?)\s+(?:anytime\s*td|atd|anytime touchdown|to score a td)(?:\s*scorer)?\s*$/i);
   if (m) return { text: t, player: m[1].trim(), market: 'td', side: 'over', line: 0.5 };
   m = t.match(/^(.+?)\s+(?:to record (?:a |an )?)?(triple[\s-]*double|double[\s-]*double)\s*(?:yes)?\s*$/i);
@@ -596,6 +608,17 @@ async function gnLoad() {
       const g = (boards[lg] || []).filter(x => x.home.ab === gnAb(lg, t.ab) || x.away.ab === gnAb(lg, t.ab)).sort((x, y) => (x.state === 'in' ? -1 : 0) - (y.state === 'in' ? -1 : 0) || Math.abs(Date.parse(x.start) - Date.now()) - Math.abs(Date.parse(y.start) - Date.now()))[0];
       if (g) { L.lg = lg; L.game = g; L.key = t.name; } }
   }));
+  for (const b of bets) for (const L of b._legs) if (L.team) {
+    const near = g => Math.abs(Date.parse(g.start) - Date.now());
+    const cands = L.team.flatMap(t => (boards[t.lg] || []).filter(g => g.home.ab === t.ab || g.away.ab === t.ab).map(g => ({ g, t })))
+      .filter(x => b.sport ? x.t.lg === String(b.sport).toLowerCase() : true).sort((x, y) => (x.g.state === 'in' ? -1 : 0) - (y.g.state === 'in' ? -1 : 0) || near(x.g) - near(y.g));
+    if (!cands.length) { L.status = 'unknown'; continue; }
+    const { g, t } = cands[0]; L.game = g; L.lg = t.lg; L.name = t.name;
+    const home = g.home.ab === t.ab, us = Number(home ? g.home.score : g.away.score) || 0, them = Number(home ? g.away.score : g.home.score) || 0;
+    L.margin = us - them; const v = L.margin + (L.kind === 'spread' ? L.line : 0);
+    L.status = g.state === 'pre' ? 'pre' : g.state === 'post' ? (v > 0 ? 'hit' : v === 0 ? (L.kind === 'ml' ? 'lost' : 'push') : 'lost') : 'live';
+    L.ahead = v > 0 ? 'win' : v < 0 ? 'lose' : 'tie';
+  }
   const boxes = new Map();
   await Promise.all([...new Set(legs.filter(L => L.game && L.game.state !== 'pre').map(L => L.lg + ':' + L.game.id))].map(async k => {
     const [lg, id] = k.split(':'); try { boxes.set(k, gnBox(lg, await espn(`${LG_PATH[lg]}/summary?event=${id}`, 15000))); } catch (_) {}
@@ -614,7 +637,7 @@ async function gnLoad() {
     if (L.status === 'live' && need == null && g.frac > 0.05) L.pace = L.v / g.frac;
   }
   for (const b of bets) {
-    const ls = b._legs, tracked = ls.filter(L => L.player);
+    const ls = b._legs, tracked = ls.filter(L => L.player || L.team);
     b._lost = ls.find(L => L.status === 'lost'); b._hit = ls.filter(L => L.status === 'hit').length;
     b._state = b._lost ? 'lost' : tracked.length === ls.length && ls.every(L => L.status === 'hit' || L.status === 'push' || L.status === 'void') ? 'won' : ls.some(L => L.status === 'live') ? 'live' : 'pre';
   }
@@ -645,6 +668,16 @@ function gnCss() {
   document.head.append(c);
 }
 function gnLegHtml(L) {
+  if (L.team) {
+    const g = L.game, what = L.kind === 'ml' ? 'to win' : `${L.line > 0 ? '+' : ''}${L.line}`;
+    if (!g) return `<div class="gn-leg"><div class="gn-lt"><span>${esc(L.text)}</span></div><div class="gn-ls"><span>No game found today</span></div></div>`;
+    const when = g.state === 'pre' ? new Date(g.start).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : g.detail;
+    const mg = L.margin == null || g.state === 'pre' ? '—' : (L.margin > 0 ? '+' : '') + L.margin;
+    const right = L.status === 'hit' ? '<span class="ok">✓ Hit</span>' : L.status === 'lost' ? '<span class="bad">✗ Lost</span>' : L.status === 'push' ? 'Push'
+      : L.status === 'live' ? (L.ahead === 'win' ? `<span class="ok">${L.kind === 'ml' ? 'Winning' : 'Covering'}</span>` : L.ahead === 'tie' ? 'Even' : `<span class="bad">${L.kind === 'ml' ? 'Losing' : 'Not covering'}</span>`) : '';
+    return `<div class="gn-leg" data-s="${L.status}"><div class="gn-lt"><span>${esc(L.name)} <b>${what}</b></span><span class="v">${mg}</span></div>
+      <div class="gn-ls"><span>${esc(`${g.away.ab} ${g.state === 'pre' ? '' : g.away.score ?? ''} @ ${g.home.ab} ${g.state === 'pre' ? '' : g.home.score ?? ''} · ${when}`)}</span><span>${right}</span></div></div>`;
+  }
   if (!L.player) return `<div class="gn-leg"><div class="gn-lt"><span>${esc(L.text)}</span></div><div class="gn-ls"><span>Can't follow this one live</span></div></div>`;
   const nm = GN_NAME[L.market] || L.market, g = L.game;
   const tag = L.market === 'td' ? '' : L.market === 'dd' || L.market === 'td3' ? '' : `${L.side === 'over' ? 'o' : 'u'}${L.line}`;

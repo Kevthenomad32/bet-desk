@@ -40,7 +40,7 @@ PG = [{'league': 'nba', 'game_id': f'g{i}', 'player_id': '99', 'name': 'Darius G
 
 import datetime as _dt
 _today = (_dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(hours=5)).date().isoformat()
-backup['docs'].append({'coll': 'ledger/bets', 'id': 'gn1', 'data': {'label': 'Jalen Brunson o24.5 pts, Stephen Curry u27.5 pts, Brunson double-double', 'legs': 3, 'type': 'Parlay',
+backup['docs'].append({'coll': 'ledger/bets', 'id': 'gn1', 'data': {'label': 'Jalen Brunson o24.5 pts, Stephen Curry u27.5 pts, Brunson double-double, Knicks ML, Warriors +3.5', 'legs': 3, 'type': 'Parlay',
                        'stake': 20, 'odds': 400, 'status': 'open', 'date': _today, 'sport': 'NBA', 'book': 'Hard Rock Bet'}})
 PG += [{'league': 'nba', 'game_id': 'x1', 'player_id': '3', 'name': 'Jalen Brunson', 'name_norm': 'jalen brunson', 'team': 'Knicks', 'team_ab': 'NYK', 'opp': 'Warriors', 'opp_ab': 'GSW',
         'date': '2026-10-30', 'season': 2027, 'starter': True, 'dnp': False, 'stats': {'pts': 30}},
