@@ -5,7 +5,10 @@ market this fits   logit(calibrated) = a * logit(raw) + b   on the props the mod
 pulled toward "no change" (a=1, b=0) so a small sample can only move it a little. The result is stored in the
 'calibration' doc and applied by both the hourly model runs and the app page.
 
-Always fit on the RAW model chance (rows keep it as pOverRaw once calibration is on), never on calibrated ones."""
+Always fit on the RAW model chance (rows keep it as pOverRaw once calibration is on), never on calibrated ones.
+Rows without pOverRaw are skipped: they predate calibration (Nov 2 2026) and were priced by an older blend (before the
+NBA 0.02 under shift and NBA points going book-only), so fitting on them re-learned the under lean and stacked it on top
+of the shift (week of Nov 2: NBA overs hit 48.6% but were priced at 45.6%; every NBA points and PRA pick was an under)."""
 import datetime as dt
 import math
 
@@ -23,7 +26,7 @@ sig = lambda z: 1 / (1 + math.exp(-z))
 
 
 def raw_p(r):
-    p = r.get('pOverRaw', r.get('pOver'))
+    p = r.get('pOverRaw')  # no fallback to pOver: see the module note
     try:
         return clip(float(p), 0.01, 0.99)
     except (TypeError, ValueError):
