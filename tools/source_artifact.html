@@ -1520,7 +1520,9 @@ function renderSoftSheet(){
     el('div',{class:'row spread'},el('strong',{text:`${g.away} @ ${g.home}`}),el('span',{class:'small muted num',text:[g.time,g.line].filter(Boolean).join(' · ')})),
     el('div',{class:'ss-sides'},...(g.sides||[]).map(sd=>el('div',{class:'ss-side'},
       el('div',{class:'ss-h'},`${sd.off} offense `,el('span',{class:'muted',text:`vs ${sd.def} D`})),
-      el('ul',{},...(sd.ranks||[]).map(([k,l,pos])=>el('li',{class:'ss-c'+(k>=30?' ss-max':''),'data-pos':pos},el('b',{class:'num',text:'#'+k}),el('span',{text:l}),el('i',{text:pos}))))))))));
+      el('ul',{},...(sd.ranks||[]).map(([k,l,pos])=>el('li',{class:'ss-c'+(k>=30?' ss-max':''),'data-pos':pos},el('b',{class:'num',text:'#'+k}),el('span',{text:l}),el('i',{text:pos})))),
+      (sd.targets||[]).length?el('div',{class:'small',style:'margin-top:6px'},el('span',{class:'muted',text:'Targets: '}),
+        ...sd.targets.flatMap(([n,pos,prop,k],i)=>[i?' · ':'',el('b',{text:n}),` (${pos}) ${prop} `,el('span',{class:'chip'+(k>=30?' win':''),text:'#'+k})])):null))))));
   const note=$('#ssNote'); note.replaceChildren('Position ranks from the ', el('a',{href:d.sourceUrl||'https://propsmadness.com/nfl/props/cheat-sheet',target:'_blank',rel:'noopener',text:`PropsMadness Week ${d.week} cheat sheet`}),
     `${d.updated?` (${d.updated})`:''}.${d.bye?.length?` On bye: ${d.bye.join(', ')}.`:''} Context only: the model doesn't use these. Clears after the week's last game.`);
   box.hidden=false;
