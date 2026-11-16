@@ -170,6 +170,10 @@ def notify(title, text):
     topic = os.environ.get('NTFY_TOPIC')
     if not topic:
         return
+    try:  # HTTP headers are latin-1 only; ntfy reads RFC 2047 encoded titles, so en dashes etc. survive
+        title.encode('latin-1')
+    except UnicodeEncodeError:
+        title = '=?UTF-8?B?' + __import__('base64').b64encode(title.encode()).decode() + '?='
     try:
         requests.post(f'https://ntfy.sh/{topic}', data=text.encode(), headers={'Title': title}, timeout=20)
     except requests.RequestException:
