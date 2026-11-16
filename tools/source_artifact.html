@@ -209,13 +209,22 @@ body.has-slip main{padding-bottom:120px}
     </div>
     <div class="row spread" style="margin:0 0 8px"><h3 id="tilesTitle" style="margin:0">All time</h3><select id="tilesWeek" aria-label="Week" style="width:auto;min-height:36px"></select></div>
     <div class="tiles" id="tiles"></div>
-    <div class="panel">
-      <div class="row spread"><h3>Bankroll &amp; units</h3><span class="small muted" id="unitNote"></span></div>
-      <div class="grid-form">
-        <label class="f">Bankroll ($)<input id="st-bank" inputmode="decimal" placeholder="1000"></label>
-        <label class="f">1 unit ($)<input id="st-unit" inputmode="decimal" placeholder="25"></label>
+    <div class="panel" id="bankPanel">
+      <div class="row spread"><h3>Weekly bankroll</h3><span class="small muted" id="bankWeek"></span></div>
+      <div id="bankRoll" class="notice" hidden></div>
+      <div class="tiles" id="bankTiles" style="margin:8px 0"></div>
+      <div id="bankBar" style="margin:4px 0 10px"></div>
+      <div id="bankAlerts" style="display:flex;flex-direction:column;gap:6px;margin-bottom:10px"></div>
+      <details id="bankEdit"><summary class="small" style="cursor:pointer">Edit this week's numbers <span class="muted" id="unitNote"></span></summary>
+      <div class="grid-form" style="margin-top:10px">
+        <label class="f">Starting balance ($)<input id="st-bank" inputmode="decimal" placeholder="2000"></label>
+        <label class="f">Goal ($)<input id="st-goal" inputmode="decimal" placeholder="2400"></label>
+        <label class="f">Floor: stop at ($)<input id="st-floor" inputmode="decimal" placeholder="1700"></label>
+        <label class="f">Lock profit at (+$)<input id="st-lock" inputmode="decimal" placeholder="500"></label>
+        <label class="f">1 unit ($)<input id="st-unit" inputmode="decimal" placeholder="50"></label>
+        <label class="f">Max bet (units)<input id="st-maxu" inputmode="decimal" placeholder="2"></label>
         <label class="f" style="justify-content:flex-end"><button type="button" class="primary" id="st-save">Save</button></label>
-      </div>
+      </div></details>
     </div>
     <div class="two">
       <div class="panel">
@@ -757,7 +766,7 @@ function renderTracker(){
   const decided = bets.filter(b=>b.status==='won'||b.status==='lost');
   const exp = decided.reduce((s,b)=>s+1/dec(b.odds),0);
   $('#hitnote').textContent = decided.length ? `At the odds you took, the books expected you to win ${exp.toFixed(1)} of these ${decided.length} bets. You won ${W}.` : 'Once bets settle, this compares your wins with what the odds predicted.';
-  renderChart(done);
+  renderChart(done); try{ renderBankroll(); }catch(e){}
   renderBreakdown(bets); renderSinks(bets);
   // list
   const list = $('#betList'); list.replaceChildren();
@@ -903,10 +912,69 @@ $('#betForm').addEventListener('submit',async e=>{
 
 // ---------- units, breakdown, parlay sinks ----------
 const unitSize = () => { const u=parseFloat(S.settings?.unit); return u>0?u:null; };
-function fillSettings(){ if(document.activeElement?.id?.startsWith('st-')) return; $('#st-bank').value=S.settings?.bankroll??''; $('#st-unit').value=S.settings?.unit??'';
-  const bk=parseFloat(S.settings?.bankroll), u=unitSize(); $('#unitNote').textContent = u ? `1u = ${money(u)}${bk>0?` · ${(u/bk*100).toFixed(1)}% of bankroll`:''}` : 'Set a unit to see bets in units'; }
-$('#st-save').addEventListener('click',async()=>{ const body={bankroll:parseFloat($('#st-bank').value)||null, unit:parseFloat($('#st-unit').value)||null};
-  if(!S.live){ S.settings=body; fillSettings(); renderTracker(); return; } try{ await S.db.doc(S.base+'/settings').set(body); $('#unitNote').textContent='Saved'; }catch(e){ $('#unitNote').textContent='Could not save'; } });
+// ---------- weekly bankroll (Mon–Sun, by bet date) ----------
+const todayLocal = () => new Date(Date.now()-new Date().getTimezoneOffset()*6e4).toISOString().slice(0,10);
+const numOr = (v,d=null) => { const n=parseFloat(v); return isFinite(n)?n:d; };
+function bankWeek(st, week){  // balance for one week from its start + settled bets dated that week
+  const bets=(S.bets||[]).filter(b=>weekOf(b.date)===week), done=bets.filter(settled), open=bets.filter(b=>b.status==='open');
+  const start=week===st.week?numOr(st.weekStart, numOr(st.bankroll,0)):(st.week&&week>st.week?bankWeek(st,st.week).bal:numOr(st.bankroll,0)), pnl=done.reduce((s,b)=>s+net(b),0);
+  return {start, pnl, bal:start+pnl, done, open, atRisk:open.reduce((s,b)=>s+(b.bonus?0:b.stake),0), bets};
+}
+async function saveSettings(patch){ const body={...(S.settings||{}), ...patch};
+  if(!S.live){ S.settings=body; fillSettings(); renderTracker(); return; } await S.db.doc(S.base+'/settings').set(body); }
+function renderBankroll(){
+  const box=$('#bankPanel'); if(!box) return;
+  const st=S.settings||{}, cur=weekOf(todayLocal()), u=unitSize(), maxU=numOr(st.maxU,2);
+  const week=st.week||cur; $('#bankWeek').textContent=weekName(cur);
+  // new week: offer to carry last week's ending balance over
+  const roll=$('#bankRoll');
+  if(st.week && st.week<cur){ const last=bankWeek(st, st.week); roll.hidden=false;
+    roll.replaceChildren(el('span',{text:`New week. Last week (${weekName(st.week)}) ended at ${money(last.bal)} (${money(last.pnl,true)}). `}),
+      el('button',{type:'button',class:'primary',style:'min-height:30px;padding:3px 10px;font-size:12px;margin-left:6px',text:`Start this week at ${money(last.bal)}`,onclick:async e=>{ e.target.disabled=true;
+        const hist=[...(st.history||[]).filter(h=>h.week!==st.week), {week:st.week,start:last.start,end:Math.round(last.bal*100)/100}].slice(-26);
+        try{ await saveSettings({week:cur, weekStart:Math.round(last.bal*100)/100, bankroll:Math.round(last.bal*100)/100, history:hist}); }catch(_){ e.target.disabled=false; setSync('Could not save'); } }}));
+  } else roll.hidden=true;
+  const w=bankWeek(st, cur>week?cur:week), start=w.start, bal=w.bal, pnl=w.pnl, avail=bal-w.atRisk;
+  const floor=numOr(st.floor), goal=numOr(st.goal), lock=numOr(st.lockAt);
+  const day=Math.min(7, Math.max(1, Math.round((Date.parse(todayLocal()+'T12:00')-Date.parse(cur+'T12:00'))/864e5)+1)), left=7-day+1;
+  const uu=v=>u?` · ${(v>=0?'+':'−')}${Math.abs(v/u).toFixed(1)}u`:'';
+  $('#bankTiles').replaceChildren(
+    tile('Balance', money(bal), `Started ${money(start)} · ${money(pnl,true)} this week${uu(pnl)}`, pnl>0?'pos':pnl<0?'neg':''),
+    tile('Available', money(avail), w.open.length?`${money(w.atRisk)} in ${w.open.length} open bet${w.open.length>1?'s':''}`:'No open bets this week'),
+    tile('Above floor', floor!=null?money(bal-floor,true):'—', floor!=null?`Stop at ${money(floor)}${u&&bal>floor?` · room for ${Math.floor((bal-floor)/(u*maxU))} max bet${Math.floor((bal-floor)/(u*maxU))===1?'':'s'}`:''}`:'Set a floor below', floor!=null?(bal<=floor?'neg':(bal-floor<=2*maxU*(u||0)?'neg':'')):''),
+    tile('To goal', goal!=null?(bal>=goal?'Reached':money(goal-bal)):'—', goal!=null?`Goal ${money(goal)}${goal>start?` · ${Math.max(0,Math.min(100,Math.round((bal-start)/(goal-start)*100)))}% of the way`:''}`:'Set a goal below', goal!=null&&bal>=goal?'pos':'')
+  );
+  // floor → goal bar
+  const bar=$('#bankBar'); bar.replaceChildren();
+  if(floor!=null&&goal!=null&&goal>floor){ const P=v=>Math.max(0,Math.min(100,(v-floor)/(goal-floor)*100));
+    bar.append(el('div',{style:'position:relative;height:10px;border-radius:5px;background:var(--sunk);overflow:hidden'},
+        el('div',{style:`position:absolute;left:0;top:0;bottom:0;width:${P(bal)}%;background:${bal<start?'var(--loss)':'var(--win)'};border-radius:5px`}),
+        el('div',{title:'Start',style:`position:absolute;top:0;bottom:0;left:${P(start)}%;width:2px;background:var(--muted)`})),
+      el('div',{class:'small muted row spread',style:'margin-top:3px'},el('span',{text:`Floor ${money(floor)}`}),el('span',{text:`Start ${money(start)}`}),el('span',{text:`Goal ${money(goal)}`})));
+  }
+  // alerts
+  const A=[], note=(cls,t)=>A.push(el('div',{class:'notice',style:cls==='loss'?'background:var(--loss-soft);color:var(--loss)':cls==='win'?'background:var(--win-soft);color:var(--win)':cls==='info'?'background:var(--sunk);color:var(--text, inherit)':'',text:t}));
+  if(floor!=null&&bal<=floor) note('loss',`Floor hit: ${money(bal)} is at or under your ${money(floor)} stop. Done betting for this week.`);
+  else if(floor!=null&&u&&bal-floor<=2*maxU*u) note('warn',`Close to your floor: ${money(bal-floor)} left before the ${money(floor)} stop. Two max bets could get you there.`);
+  if(lock!=null&&pnl>=lock) note('win',`Up ${money(pnl)} this week, past your +${money(lock)} lock. Move some profit out of your betting account.`);
+  const big=w.open.filter(b=>!b.bonus&&u&&b.stake>maxU*u+0.01);
+  if(big.length) note('warn',`${big.length} open bet${big.length>1?'s are':' is'} over your ${maxU}u (${money(maxU*u)}) max: ${big.map(b=>money(b.stake)).join(', ')}.`);
+  const bigDone=w.done.filter(b=>!b.bonus&&u&&b.stake>maxU*u+0.01).length;
+  if(bigDone) note('info',`${bigDone} settled bet${bigDone>1?'s':''} this week went over your ${maxU}u max.`);
+  if(goal!=null&&bal<goal&&!(floor!=null&&bal<=floor)){
+    const need=goal-bal, proj=w.done.length&&day>=2?start+pnl/day*7:null;
+    note('info',`Pace (day ${day} of 7): goal needs ${money(need,true)}${u?` (${(need/u).toFixed(1)}u)`:''}, about ${money(need/left)} a day for the ${left} day${left>1?'s':''} left.${proj!=null?` At this week's rate you'd finish near ${money(proj)}.`:''}${u&&need/left>3*maxU*u?' That pace needs bets well over your max, so treat the goal as a stretch.':''}`);
+  }
+  $('#bankAlerts').replaceChildren(...A);
+}
+function fillSettings(){ const st=S.settings||{};
+  if(!document.activeElement?.id?.startsWith('st-')){
+    $('#st-bank').value=st.weekStart??st.bankroll??''; $('#st-goal').value=st.goal??''; $('#st-floor').value=st.floor??''; $('#st-lock').value=st.lockAt??''; $('#st-unit').value=st.unit??''; $('#st-maxu').value=st.maxU??''; }
+  const bk=numOr(st.weekStart??st.bankroll), u=unitSize(); $('#unitNote').textContent = u ? `· 1u = ${money(u)}${bk>0?` (${(u/bk*100).toFixed(1)}% of this week's start)`:''}` : '· set a unit to see bets in units';
+  renderBankroll(); }
+$('#st-save').addEventListener('click',async()=>{ const start=numOr($('#st-bank').value);
+  const patch={week:weekOf(todayLocal()), weekStart:start, bankroll:start, goal:numOr($('#st-goal').value), floor:numOr($('#st-floor').value), lockAt:numOr($('#st-lock').value), unit:numOr($('#st-unit').value), maxU:numOr($('#st-maxu').value)};
+  try{ await saveSettings(patch); $('#unitNote').textContent='· Saved'; $('#bankEdit').open=false; }catch(e){ $('#unitNote').textContent='· Could not save'; } });
 function guessSport(label){ if(!label) return null; const l=label.toLowerCase(); const has=list=>list.some(t=>new RegExp('\\b'+t.toLowerCase()+'\\b').test(l));
   if(has(TEAMS)) return 'NFL'; if(has(NBA_TEAMS)) return 'NBA'; if(/\b(pass|rush|rec|receiving|rushing|passing|td)\b/.test(l)) return 'NFL'; if(/\b(pts|points|reb|rebounds|ast|assists|3pm|threes)\b/.test(l)) return 'NBA'; return null; }
 const sportOf = b => b.sport || guessSport(b.label) || 'Other';

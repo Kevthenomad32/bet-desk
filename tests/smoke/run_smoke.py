@@ -95,8 +95,10 @@ with sync_playwright() as p:
     pg.select_option('#tilesWeek', 'all'); pg.wait_for_timeout(300)
     res['bets_listed'] = pg.eval_on_selector_all('#betList .bet', 'els=>els.length')
     # write path: change the unit setting
-    pg.fill('#st-unit', '50'); pg.click('#st-save'); pg.wait_for_timeout(500)
-    res['wrote_settings'] = pg.evaluate("window.__WRITES.some(w=>w.id==='settings'&&w.data.unit===50)")
+    res['bankroll'] = pg.inner_text('#bankPanel').replace('\n', ' | ')[:900]
+    pg.screenshot(path=os.environ.get('BANK_SHOT', '/tmp/bank.png'), clip=pg.eval_on_selector('#bankPanel', 'e=>{const r=e.getBoundingClientRect();return {x:r.x,y:r.y+scrollY,width:r.width,height:r.height}}'), full_page=True)
+    pg.click('#bankEdit summary'); pg.fill('#st-unit', '50'); pg.fill('#st-floor', '1700'); pg.click('#st-save'); pg.wait_for_timeout(500)
+    res['wrote_settings'] = pg.evaluate("window.__WRITES.some(w=>w.id==='settings'&&w.data.unit===50&&w.data.floor===1700&&w.data.week)")
     pg.click('#t-nba'); pg.wait_for_timeout(1500)
     pg.wait_for_timeout(800); res['nba_value'] = pg.inner_text('#tab-nba .bd-value')[-220:].replace('\n', ' | ')
     res['sixty_tiles'] = pg.inner_text('#sixtyTiles').replace('\n', ' | ')[:200]
