@@ -132,6 +132,10 @@ class DB:
         self._req('POST', 'docs', params={'on_conflict': 'uid,coll,id'}, headers={'Prefer': 'resolution=merge-duplicates'},
                   data=json.dumps({'uid': self.uid, 'coll': c, 'id': i, 'data': data}))
 
+    def delete(self, path):
+        c, i = self.split(path)
+        self._req('DELETE', 'docs', params={'uid': f'eq.{self.uid}', 'coll': f'eq.{c}', 'id': f'eq.{i}'})
+
     def merge(self, path, patch):
         """Merge fields into a document; a value {'__delete__': True} removes that field."""
         c, i = self.split(path)

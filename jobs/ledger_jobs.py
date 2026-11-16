@@ -84,11 +84,22 @@ def _context(db, bets, start, end):
     return '\n'.join(lines)
 
 
+def soft_spots_expired(doc, now=None):
+    """The weekly cheat sheet is done ~4 hours after the week's last kickoff (Monday night, usually)."""
+    if not doc or not doc.get('games'):
+        return True
+    starts = [parse_iso(doc['lastGameStart'])] if doc.get('lastGameStart') else [parse_iso(g['start']) for g in doc['games'] if g.get('start')]
+    return bool(starts) and (now or now_utc()) > max(starts) + dt.timedelta(hours=4)
+
+
 def settle(db):
     t = now_et(); today = t.date()
     archive_range(db, 'nba', today - D(days=2), today)
     archive_range(db, 'nfl', today - D(days=8), today)
     out = []
+    ss = db.get('softSpots')
+    if ss is not None and soft_spots_expired(ss):
+        db.delete('softSpots'); out.append(f"Week {ss.get('week', '?')} cheat sheet cleared")
     # app best bets (picks)
     picks = [p for p in db.list('ledger/picks') if (p.get('status') or 'open') == 'open' and p.get('gameStart') and parse_iso(p['gameStart']) < now_utc()]
     won = lost = push = 0

@@ -17,6 +17,10 @@ backup['docs'] += [
         {'away': 'Duke', 'home': 'Kansas', 'start': '2026-11-04T00:30:00Z', 'neutral': True, 'proj': {'margin': 2.1, 'total': 151.4, 'gp': 1},
          'calls': {'spread': call('home', -1.5, -110, 0.531, True), 'total': call('under', 152.5, -108, 0.512, False)}}]}},
     {'coll': 'ledger/cbbgl', 'id': 'cbb-2026-11-03-x-at-y', 'data': {'calls': {'spread': call('away', 3.5, -110, 0.54, True, 'won')}}}]
+backup['docs'] += [{'coll': '', 'id': 'softSpots', 'data': {'week': 10, 'updated': 'Nov 11', 'sourceUrl': 'https://propsmadness.com/nfl/props/cheat-sheet', 'games': [
+    {'away': 'Chargers', 'home': 'Ravens', 'start': os.environ.get('SOFT_START', '2099-01-01T01:15:00Z'), 'time': 'Mon 8:15 PM ET', 'sides': [
+        {'off': 'Ravens', 'def': 'Chargers', 'ranks': [[32, 'TDs allowed to WR', 'WR'], [32, 'Rush attempts allowed to RB', 'RB']]},
+        {'off': 'Chargers', 'def': 'Ravens', 'ranks': [[28, 'Rush TDs allowed to RB', 'RB']]}]}]}}]
 backup['docs'] += [{'coll': '', 'id': 'value', 'data': {'updated': '2026-11-03T20:00:00Z', 'rows': [
     {'lg': 'nba', 'game': 'Celtics @ Knicks', 'start': '2099-01-01T00:30:00Z', 'kind': 'prop', 'label': 'Jalen Brunson over 26.5 points', 'price': '+105', 'fair': -100, 'fairP': 0.5, 'ev': 0.025, 'avg': 27.1},
     {'lg': 'cbb', 'game': 'Duke @ Kansas', 'start': '2099-01-01T00:30:00Z', 'kind': 'spread', 'label': 'Kansas -1.5', 'price': '+100', 'fair': -104, 'fairP': 0.51, 'ev': 0.02}]}}]
@@ -107,6 +111,8 @@ with sync_playwright() as p:
     res['nfl_title'] = pg.inner_text('#slateTitle')
     pg.wait_for_timeout(1200); res['nfl60'] = pg.inner_text('#tab-nfl .bd-sixty')[:700].replace('\n', ' | ')
     res['soft_spots'] = pg.eval_on_selector_all('#ssDef .ss-g', 'els=>els.length')
+    res['soft_title'] = pg.inner_text('#ssTitle')
+    res['soft_hidden'] = pg.evaluate("document.getElementById('softSpots').hidden")
     pg.click('#t-score'); pg.wait_for_timeout(1500)
     res['scores'] = pg.inner_text('#sbGames').replace('\n', ' | ')[:200]
     pg.click('#sbGames .sb'); pg.wait_for_timeout(1200)

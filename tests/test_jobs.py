@@ -302,3 +302,15 @@ def test_new_leg_types_grade():
     jok = {'pts': 18, 'reb': 14, 'ast': 11, 'stl': 1, 'blk': 0}
     assert grade(legs[0], stat_value(jok, 'pts')) == 'lost' and grade(legs[1], stat_value(jok, 'dd')) == 'won' and grade(legs[2], stat_value(jok, 'td3')) == 'won'
     assert stat_value({'pass': 200}, 'car') is None  # stat not in the box score: left for Claude, not graded as 0
+
+
+def test_soft_spots_expire_after_last_game():
+    import datetime as dt
+    from jobs.ledger_jobs import soft_spots_expired
+    mnf = dt.datetime(2026, 11, 17, 1, 15, tzinfo=dt.timezone.utc)
+    doc = {'week': 10, 'games': [{'start': '2026-11-15T18:00:00Z'}, {'start': '2026-11-17T01:15:00Z'}]}
+    assert not soft_spots_expired(doc, mnf)                          # Monday night game still to finish
+    assert not soft_spots_expired(doc, mnf + dt.timedelta(hours=3))
+    assert soft_spots_expired(doc, mnf + dt.timedelta(hours=5))      # done: overnight job deletes it
+    assert soft_spots_expired({'week': 10, 'lastGameStart': '2026-11-17T01:15:00Z', 'games': [{}]}, mnf + dt.timedelta(hours=5))
+    assert soft_spots_expired({}, mnf) and soft_spots_expired(None, mnf)
