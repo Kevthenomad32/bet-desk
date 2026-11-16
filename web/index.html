@@ -1143,7 +1143,7 @@ $('#pf-team').replaceChildren(...TEAMS.map(t=>el('option',{value:t,text:t})));
 const clampN=(x,lo,hi)=>Math.max(lo,Math.min(hi,x));
 const numN=x=>{ if(x==null||x==='') return null; const n=parseFloat(x); return isNaN(n)?null:n; };
 const key2N=n=>{ const w=n.split(' '); return w.length>=2?w[0].slice(0,3)+' '+w.at(-1):n; };
-const DEFAULT_W={nba:{wRole:.6,wScript:1,wMatch:1,wModel:.3,wOpt:.5,wOpp:1,under:.02,off:['pts']}, nfl:{wRole:.5,wScript:1,wMatch:1,wModel:.3,wOpt:.5,under:0,off:[]}};
+const DEFAULT_W={nba:{wRole:.6,wScript:1,wMatch:1,wModel:.3,wOpt:.5,wOpp:1,under:.02,off:['pts']}, nfl:{wRole:.5,wScript:1,wMatch:1,wModel:.3,wOpt:.5,under:0,off:['pass']}};
 // off: markets where the model is ignored (NBA points); under: shift toward the under (NBA overs run cold). Same as jobs/model/picks_build.py.
 const blendN=(pm,pb,W,mk)=>clampN(pb+((W.off||[]).includes(mk)?0:W.wModel)*(pm-pb)-(W.under||0),.01,.99);
 // ---------- Optimal data (viewer's Optimal connector): Hard Rock FL line + price, Pinnacle no-vig anchor, Optimal projections ----------
@@ -1173,10 +1173,10 @@ const amerN=x=>{ const v=parseInt(String(x??'').replace('+',''),10); return isNa
 const impN=o=>{ o=amerN(o); return o==null?null:(o>0?100/(o+100):-o/(-o+100)); };
 const decN=o=>{ o=amerN(o); return o==null?null:(o>0?1+o/100:1+100/-o); };
 function bookOver(o,u){ const po=impN(o), pu=impN(u); if(po!=null&&pu!=null) return po/(po+pu); if(po!=null) return clampN(po/1.045,.02,.98); if(pu!=null) return clampN(1-pu/1.045,.02,.98); return .5; }
-function calP(p, market){ const c=S.cal?.markets?.[market]; if(!c||c.a==null||p==null) return p; const q=Math.min(.99,Math.max(.01,p)), z=c.a*Math.log(q/(1-q))+c.b; return Math.min(.99,Math.max(.01,1/(1+Math.exp(-z)))); }
+function calP(p, market, W){ if((W?.off||[]).includes(market)) return p; const c=S.cal?.markets?.[market]; if(!c||c.a==null||p==null) return p; const q=Math.min(.99,Math.max(.01,p)), z=c.a*Math.log(q/(1-q))+c.b; return Math.min(.99,Math.max(.01,1/(1+Math.exp(-z)))); }
 function evaluateN(p, exp, W){
   const pm=modelOver(p.market, exp, p.line); if(pm==null) return null;
-  const pb=(p.pinO&&p.pinU)?bookOver(p.pinO,p.pinU):bookOver(p.odds,p.uodds), pfRaw=blendN(pm,pb,W,p.market), pf=calP(pfRaw,p.market);
+  const pb=(p.pinO&&p.pinU)?bookOver(p.pinO,p.pinU):bookOver(p.odds,p.uodds), pfRaw=blendN(pm,pb,W,p.market), pf=calP(pfRaw,p.market,W);
   const dO=decN(p.odds)||1/(pb*1.045), dU=decN(p.uodds)||1/((1-pb)*1.045);
   const evO=pf*(dO-1)-(1-pf), evU=(1-pf)*(dU-1)-pf, side=evO>=evU?'over':'under';
   return {pModel:pm, pBook:pb, pOver:pf, pOverRaw:pfRaw, side, ev:Math.max(evO,evU), pWin:side==='over'?pf:1-pf};

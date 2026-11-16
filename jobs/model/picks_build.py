@@ -17,8 +17,12 @@ def load(f):
     return j['data'] if isinstance(j,dict) and isinstance(j.get('data'),dict) else j
 
 DEFAULT_W = {'nba': {'wRole': 0.6, 'wScript': 1.0, 'wMatch': 1.0, 'wModel': 0.3, 'wOpt': 0.5, 'wOpp': 1.0, 'under': 0.02, 'off': ('pts',)},
-             'nfl': {'wRole': 0.5, 'wScript': 1.0, 'wMatch': 1.0, 'wModel': 0.3, 'wOpt': 0.5, 'under': 0.0, 'off': ()}}
-# 'off': markets where the model is ignored and the book's price is used as-is (NBA points: raw model hit 45.8% on 716 graded props, Nov 1 2026).
+             'nfl': {'wRole': 0.5, 'wScript': 1.0, 'wMatch': 1.0, 'wModel': 0.3, 'wOpt': 0.5, 'under': 0.0, 'off': ('pass',)}}
+# 'off': markets where the model is ignored and the book's price is used as-is (NBA points: raw model hit 45.8% on 716 graded props, Nov 1 2026;
+#        NFL passing: final picks hit 42% (31/74) vs the book's 50% over Oct 26-Nov 15 2026, Nov 16 2026). The nightly calibration is
+#        NOT applied to these either: it is fitted on blended chances, so on a book-only market it stacks a second correction
+#        (NBA points sat ~4 pts under the book instead of the intended 0.02 and could never pick an over). pModel is still logged
+#        in the shadow ledger so the model can be switched back on when it earns it.
 # 'under': shift toward the under (NBA overs hit 45.8% vs the book's 49.5%; 0.02 picked on Oct props, held up the week of Oct 26).
 
 def blend(pm, pb, W, market):
@@ -143,8 +147,9 @@ def apply_opt(p, o):
 CAL = {}  # nightly calibration (doc 'calibration'), passed in the WEIGHTS file under 'cal'
 
 
-def calibrated(p, market):
-    """logit(p) -> a*logit(p)+b for markets the settle job has fitted; unchanged otherwise."""
+def calibrated(p, market, W=None):
+    """logit(p) -> a*logit(p)+b for markets the settle job has fitted; unchanged otherwise, and for book-only ('off') markets."""
+    if market in (W or {}).get('off', ()): return p
     c = (CAL.get('markets') or {}).get(market) or {}
     if 'a' not in c: return p
     q = clamp(p, .01, .99); z = c['a'] * math.log(q / (1 - q)) + c['b']
@@ -156,7 +161,7 @@ def evaluate(p, comps_exp, W):
     line = p['line']; pm = p_over(p['market'], comps_exp, line)
     if pm is None: return None
     pb = book_over(p['pinO'], p['pinU']) if p.get('pinO') and p.get('pinU') else book_over(p.get('odds'), p.get('uodds'))
-    pf_raw = blend(pm, pb, W, p['market']); pf = calibrated(pf_raw, p['market'])
+    pf_raw = blend(pm, pb, W, p['market']); pf = calibrated(pf_raw, p['market'], W)
     # a missing price is estimated from the book's fair chance plus a normal ~4.5% margin (never assume -110 on a lopsided line)
     do = dec(p.get('odds')) or 1 / (pb * 1.045); du = dec(p.get('uodds')) or 1 / ((1 - pb) * 1.045)
     ev_o = pf * (do - 1) - (1 - pf); ev_u = (1 - pf) * (du - 1) - pf
