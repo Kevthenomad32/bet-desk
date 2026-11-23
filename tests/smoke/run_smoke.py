@@ -66,11 +66,6 @@ with sync_playwright() as p:
             return r.fulfill(body=seed + open(os.path.join(ROOT, 'tests/smoke/mock_supabase.js')).read(), content_type='application/javascript')
         if u.endswith('/config.js'):
             return r.fulfill(body="window.BD_CONFIG={supabaseUrl:'https://test.supabase.co',supabaseAnonKey:'anon'};", content_type='application/javascript')
-        if '/functions/v1/statmuse' in u:
-            asked.append(json.loads(r.request.post_data))
-            return r.fulfill(body=json.dumps({'type': 'stats', 'answer': 'Jalen Brunson averaged 27.2 points in his last 5 games.',
-                'table': {'columns': ['player', 'PointsPerGame'], 'rows': [['Jalen Brunson', '27.2']]}, 'quota': {'limit': '10000', 'remaining': '9876'}}),
-                content_type='application/json')
         if '/functions/v1/claude' in u:
             body = json.loads(r.request.post_data); asked.append(body)
             if body.get('mode') == 'chat':

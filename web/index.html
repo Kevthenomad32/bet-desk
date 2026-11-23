@@ -1137,7 +1137,8 @@ function oddsAge(o){ if(!o?.updated) return ''; const t=new Date(o.updated); ret
 function fillRoles(){ const m=$('#pf-market').value; $('#pf-role').replaceChildren(...ROLES[m].map(([v,l])=>el('option',{value:v,text:l}))); }
 $('#pf-market').addEventListener('change',fillRoles); fillRoles();
 $('#pf-team').replaceChildren(...TEAMS.map(t=>el('option',{value:t,text:t})));
-// ---------- projection model v6 (mirrors picks_build.py, the best-bets script) ----------
+// ---------- projection model v7 (mirrors picks_build.py, the best-bets script) ----------
+// v7 (Nov 23 2026): injury boosts halved + capped, a hot recent role isn't counted (only a cooler one), per-market projection scale from calibration.
 // recent role + minutes (blowout risk, back-to-back, injured teammates) + opponent's injuries (NBA) + game script + matchup, then a win chance
 // blended with the book's no-vig price by a tuned trust weight, and expected value at the listed odds.
 const clampN=(x,lo,hi)=>Math.max(lo,Math.min(hi,x));
@@ -1173,9 +1174,10 @@ const amerN=x=>{ const v=parseInt(String(x??'').replace('+',''),10); return isNa
 const impN=o=>{ o=amerN(o); return o==null?null:(o>0?100/(o+100):-o/(-o+100)); };
 const decN=o=>{ o=amerN(o); return o==null?null:(o>0?1+o/100:1+100/-o); };
 function bookOver(o,u){ const po=impN(o), pu=impN(u); if(po!=null&&pu!=null) return po/(po+pu); if(po!=null) return clampN(po/1.045,.02,.98); if(pu!=null) return clampN(1-pu/1.045,.02,.98); return .5; }
+const scaleFor=mk=>{ const v=S.cal?.markets?.[mk]?.scale; return typeof v==='number'?clampN(v,.85,1.15):1; };
 function calP(p, market, W){ if((W?.off||[]).includes(market)) return p; const c=S.cal?.markets?.[market]; if(!c||c.a==null||p==null) return p; const q=Math.min(.99,Math.max(.01,p)), z=c.a*Math.log(q/(1-q))+c.b; return Math.min(.99,Math.max(.01,1/(1+Math.exp(-z)))); }
 function evaluateN(p, exp, W){
-  const pm=modelOver(p.market, exp, p.line); if(pm==null) return null;
+  const pm=modelOver(p.market, exp==null?exp:exp*scaleFor(p.market), p.line); if(pm==null) return null;
   const pb=(p.pinO&&p.pinU)?bookOver(p.pinO,p.pinU):bookOver(p.odds,p.uodds), pfRaw=blendN(pm,pb,W,p.market), pf=calP(pfRaw,p.market,W);
   const dO=decN(p.odds)||1/(pb*1.045), dU=decN(p.uodds)||1/((1-pb)*1.045);
   const evO=pf*(dO-1)-(1-pf), evU=(1-pf)*(dU-1)-pf, side=evO>=evU?'over':'under';
@@ -1198,8 +1200,8 @@ function nbaContext(p, opp, opt){
     let wt=/^out/i.test(st)?1:/^doubt/i.test(st)?.75:0; const q=wt?lookIn(pool,x.name):null; const qm=numN(q?.min); if(!q||!qm||qm<12) continue;
     wt*=fresh(q,p.team,rec); Mout+=wt*qm; outs.push(x.name.split(' ').at(-1)); for(const k in lost) lost[k]+=wt*(numN(q[k])||0); }
   const uAdj={pts:1,reb:1,ast:1,fg3:1};
-  if(Mout>0&&mref&&mref>=10){ mAdj*=1+.8*Mout/240; for(const k in lost) uAdj[k]=1+clampN(.35*lost[k]/Math.max(tm[k]||1,1),0,.15);
-    why.push(`${outs.slice(0,3).join(', ')} out: +${(.8*Mout/240*100).toFixed(0)}% min, +${((uAdj.pts-1)*100).toFixed(0)}% usage`); }
+  if(Mout>0&&mref&&mref>=10){ const mb=Math.min(.4*Mout/240,.08); mAdj*=1+mb; for(const k in lost) uAdj[k]=1+clampN(.175*lost[k]/Math.max(tm[k]||1,1),0,.08);  // v7: half the old boost, capped
+    why.push(`${outs.slice(0,3).join(', ')} out: +${(mb*100).toFixed(0)}% min, +${((uAdj.pts-1)*100).toFixed(0)}% usage`); }
   // opponent's injuries: a thinner rotation defends a little worse (kept small: the spread and total already move on injury news),
   // and missing rebounders leave more boards. Scaled by the tunable wOpp weight in projectN.
   const oOuts=[]; let oMout=0; const oLost={pts:0,reb:0,ast:0,fg3:0};
@@ -1207,33 +1209,38 @@ function nbaContext(p, opp, opt){
     let wt=/^out/i.test(st)?1:/^doubt/i.test(st)?.75:0; const q=wt?(lookIn(pool,x.name)||plLookup(S.nbaPl,x.name)):null; const qm=numN(q?.min); if(!q||!qm||qm<12) continue;
     wt*=fresh(q,opp,true); oMout+=wt*qm; oOuts.push(x.name.split(' ').at(-1)); for(const k in oLost) oLost[k]+=wt*(numN(q[k])||0); }
   const oAdj={pts:1,reb:1,ast:1,fg3:1};
-  if(oMout>0){ const g=clampN(.12*oMout/240,0,.04), oo=T[opp].off||{}; oAdj.pts=oAdj.ast=oAdj.fg3=1+g; oAdj.reb=1+clampN(.3*oLost.reb/Math.max(oo.reb||44,1),0,.08);
+  if(oMout>0){ const g=clampN(.06*oMout/240,0,.02), oo=T[opp].off||{}; oAdj.pts=oAdj.ast=oAdj.fg3=1+g; oAdj.reb=1+clampN(.15*oLost.reb/Math.max(oo.reb||44,1),0,.04);
     why.push(`${opp} missing ${oOuts.slice(0,3).join(', ')}: +${(g*100).toFixed(0)}% scoring, +${((oAdj.reb-1)*100).toFixed(0)}% reb`); }
   let iF=null, pace=null; if(sp!=null&&tot!=null){ const implied=tot/2-sp/2; iF=clampN(implied/tm.pts,.85,1.15); pace=clampN(tot/(2*lgPts),.9,1.1); why.push(`team total ${implied.toFixed(0)}`); }
   const parts=[];
   for(const k of NBA_PARTS[p.market]){ let s=numN(P?.[k]); if(s==null&&p.market===k) s=numN(p.avg); if(s==null) return null; const r5=numN(P?.[k+'5']); const [sfn,a,b]=STAT_EXP[k];
-    parts.push({k, s, rs:smin?s/smin:null, rr:(rec&&r5!=null)?r5/rmin:null, ms:smin, mr:rec?rmin:null, mAdj, uAdj:uAdj[k], oAdj:oAdj[k], sf:sfn==='iF'?iF:pace, dF:D[k]/avgD[k], a, b}); }
-  if(rec){ const tag=rmin>smin*1.08?'role up':rmin<smin*.92?'role down':null; if(tag) why.unshift(`${tag}: ${rmin.toFixed(0)} min last 5 vs ${smin.toFixed(0)}`); }
+    const rs=smin?s/smin:null; let rr=(rec&&r5!=null)?r5/rmin:null; if(rr!=null&&rs!=null) rr=Math.min(rr,rs);  // v7: a hot stretch doesn't raise the projection
+    parts.push({k, s, rs, rr, ms:smin, mr:rec?Math.min(rmin,smin):null, mAdj, uAdj:uAdj[k], oAdj:oAdj[k], sf:sfn==='iF'?iF:pace, dF:D[k]/avgD[k], a, b}); }
+  if(rec){ const tag=rmin>smin*1.08?'role up':rmin<smin*.92?'role down':null; if(tag) why.unshift(`${tag}: ${rmin.toFixed(0)} min last 5 vs ${smin.toFixed(0)}`+(tag==='role up'?' (not counted)':'')); }
   if(opt!=null) why.push(`Optimal proj ${opt.toFixed(1)} (not used)`);
-  return {lg:'nba', parts, why, opt:opt??null, optW:null};  // this season only: no Optimal lean, even for players with few games
+  return {lg:'nba', v:7, parts, why, opt:opt??null, optW:null};  // this season only: no Optimal lean, even for players with few games
 }
 function nflContext(p, opp, opt){
   const DD=S.defense?.teams; if(!DD?.[opp]) return null; const D=DD[opp], names=Object.keys(DD), key=p.market==='rush'?'rush':'pass';
   const lg=names.reduce((s,n)=>s+(DD[n][key]||0),0)/names.length, lgPts=names.reduce((s,n)=>s+(DD[n].pts||0),0)/names.length;
   const P=plLookup(S.nflPl,p.player); let s=numN(P?.[p.market]); if(s==null) s=numN(p.avg); if(s==null) return null;
   let r=numN(P?.[p.market+'3']); const g3=numN(P?.g3); if(!(r!=null&&(g3||0)>=2)) r=null; const why=[];
-  if(r!=null){ if(r>s*1.15) why.push(`role up: ${r.toFixed(0)} last 3 vs ${s.toFixed(0)}`); else if(r<s*.85) why.push(`role down: ${r.toFixed(0)} last 3 vs ${s.toFixed(0)}`); }
+  if(r!=null){ if(r>s*1.15) why.push(`role up: ${r.toFixed(0)} last 3 vs ${s.toFixed(0)} (not counted)`); else if(r<s*.85) why.push(`role down: ${r.toFixed(0)} last 3 vs ${s.toFixed(0)}`); r=Math.min(r,s); }  // v7: only a cooler role counts
   const [sp,tot]=teamLines(S.nflOdds?.games,p.team); let sf=null;
   if(sp!=null&&tot!=null){ const implied=tot/2-sp/2, env=clampN(implied/lgPts,.8,1.25)**.5; const script=p.market==='rush'?clampN(1-.015*sp,.85,1.15):clampN(1+.012*sp,.88,1.12); sf=env*script;
     if(Math.abs(sp)>=3) why.push(`${sp<0?'favored':'underdog'} by ${Math.abs(sp)}: ${sp<0?'run':'pass'}-heavy script`); why.push(`team total ${implied.toFixed(0)}`); }
   if(opt!=null) why.push(`Optimal proj ${opt.toFixed(1)}`);
-  return {lg:'nfl', parts:[{k:p.market, s, r, sf, dF:D[key]/lg, a:1, b:.5}], why, opt:opt??null};
+  return {lg:'nfl', v:7, parts:[{k:p.market, s, r, sf, dF:D[key]/lg, a:1, b:.5}], why, opt:opt??null};
 }
+// comps logged before v7 carry the old, doubled injury boosts: halve + cap them so the tuner judges old and new props alike (same as v7_boosts in picks_build.py)
+function v7Boosts(ctx,c){ const m=c.mAdj, u=c.uAdj, o=c.oAdj??1; if((ctx.v||6)>=7) return [m,u,o];
+  const h=/out: \+(\d+)% min/.exec((ctx.why||[]).join(' ')), inj=h?+h[1]/100:0; return [m/(1+inj)*(1+Math.min(inj/2,.08)), 1+Math.min((u-1)/2,.08), 1+(o-1)/2]; }
 function projectN(ctx, W){
   let exp=0;
   for(const c of ctx.parts){ let base;
-    if(ctx.lg==='nba'){ if(c.rs!=null&&c.ms){ const rate=c.rr==null?c.rs:(1-W.wRole)*c.rs+W.wRole*c.rr; const M=(c.mr==null?c.ms:(1-W.wRole)*c.ms+W.wRole*c.mr)*c.mAdj; base=rate*Math.min(M,42)*c.uAdj; } else base=c.s*c.uAdj; base*=(c.oAdj??1)**(W.wOpp??1); }
-    else base=c.r==null?c.s:(1-W.wRole)*c.s+W.wRole*c.r;
+    if(ctx.lg==='nba'){ const [mAdj,uAdj,oAdj]=v7Boosts(ctx,c);
+      if(c.rs!=null&&c.ms){ const rr=c.rr==null?null:Math.min(c.rr,c.rs), mr=c.mr==null?null:Math.min(c.mr,c.ms); const rate=rr==null?c.rs:(1-W.wRole)*c.rs+W.wRole*rr; const M=(mr==null?c.ms:(1-W.wRole)*c.ms+W.wRole*mr)*mAdj; base=rate*Math.min(M,42)*uAdj; } else base=c.s*uAdj; base*=oAdj**(W.wOpp??1); }
+    else { const r=c.r==null?null:Math.min(c.r,c.s); base=r==null?c.s:(1-W.wRole)*c.s+W.wRole*r; }
     const f = c.sf!=null ? c.dF**(c.b*W.wMatch)*c.sf**(c.a*W.wScript) : c.dF**((ctx.lg==='nfl'?.5:1)*W.wMatch);
     exp+=base*f; }
   if(ctx.opt!=null){ const wo=Math.max(W.wOpt??.5, ctx.optW||0); exp=(1-wo)*exp+wo*ctx.opt; }

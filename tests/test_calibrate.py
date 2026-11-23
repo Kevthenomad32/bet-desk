@@ -42,3 +42,18 @@ def test_fits_raw_not_calibrated():
 def test_old_props_count_less():
     s = C.samples([shadow('pts', 1, 0.5, 1, date='2026-10-19'), shadow('pts', 1, 0.5, 1, date='2026-11-02')], today=dt.date(2026, 11, 2))
     assert abs(s[0][3] - 0.5) < 0.01 and s[1][3] == 1.0
+
+
+def _v(model, n, exp, res, date='2026-11-20'):
+    return {'date': date, 'model': model, 'rows': [{'market': 'rush', 'pOver': 0.5, 'line': 50.5, 'exp': exp, 'result': res} for _ in range(n)]}
+
+
+def test_projection_scale_learns_from_v7_only():
+    today = dt.date(2026, 11, 23)
+    cal = C.build([_v(6, 500, 70.0, 50.0)], today=today)
+    assert 'scale' not in cal['markets']['rush']                    # old-model projections are ignored
+    cal = C.build([_v(6, 500, 70.0, 50.0), _v(7, 300, 60.0, 57.0)], today=today)
+    m = cal['markets']['rush']
+    assert m['scaleN'] == 300 and 0.95 < m['scale'] < 1.0           # 57/60 = 0.95, shrunk toward 1
+    assert C.build([_v(7, 30, 60.0, 40.0)], today=today)['markets']['rush'].get('scale') is None  # too few
+    assert C.build([_v(7, 5000, 60.0, 20.0)], today=today)['markets']['rush']['scale'] == 0.85   # capped

@@ -1,4 +1,7 @@
-# App best bets, model v6 (same model as the Bet Desk page): v5 (Hard Rock line/price, Pinnacle anchor, Optimal blend, opponent injuries) plus
+# App best bets, model v7 (same model as the Bet Desk page). v7 (Nov 23 2026), from 10,150 graded props: teammate/opponent injury boosts halved and
+# capped (they ran NBA points projections ~1.5 too high), a hot recent role no longer raises the projection (only a cooler one lowers it), and a
+# per-market scale learned nightly from v7's own graded props (the 'scale' in the calibration doc) corrects any average that still runs high or low.
+# v6: v5 (Hard Rock line/price, Pinnacle anchor, Optimal blend, opponent injuries) plus
 # game-to-game spread fitted on 1,580 2025-26 NBA and 1,243 2025 NFL box scores, injury boosts only for NEW absences, this-season-only recent role,
 # more weight on Optimal early in the season, and a shadow log of every evaluated prop for self-grading. Ranks props by WIN CHANCE (Kev's choice; EV is ignored): the model's win
 # probability (role, minutes, injured teammates, rest, game script, matchup), blended with the book's no-vig price
@@ -30,7 +33,9 @@ def blend(pm, pb, W, market):
     w = 0.0 if market in W.get('off', ()) else W['wModel']
     return clamp(pb + w * (pm - pb) - W.get('under', 0.0), .01, .99)
 
-MAX_GAP = 0.22  # model vs book win chance gap above which the model is probably missing news (role change, injury): no pick
+MAX_GAP = 0.22
+MODEL_V = 7
+INJ_MIN, INJ_USG, INJ_CAP = 0.4, 0.175, 0.08  # injured teammates: +minutes and +usage per missing minute (v6 was 0.8 / 0.35, cap 15%)  # model vs book win chance gap above which the model is probably missing news (role change, injury): no pick
 
 def weights(doc, lg):
     w = dict(DEFAULT_W[lg]); w.update({k: v for k, v in ((doc or {}).get(lg) or {}).items() if k in w and isinstance(v, (int, float))}); return w
@@ -147,6 +152,12 @@ def apply_opt(p, o):
 CAL = {}  # nightly calibration (doc 'calibration'), passed in the WEIGHTS file under 'cal'
 
 
+def scale_for(market):
+    """Per-market projection scale learned from graded v7 props (1.0 until a market has enough)."""
+    v = ((CAL.get('markets') or {}).get(market) or {}).get('scale')
+    return clamp(float(v), 0.85, 1.15) if isinstance(v, (int, float)) else 1.0
+
+
 def calibrated(p, market, W=None):
     """logit(p) -> a*logit(p)+b for markets the settle job has fitted; unchanged otherwise, and for book-only ('off') markets."""
     if market in (W or {}).get('off', ()): return p
@@ -158,7 +169,7 @@ def calibrated(p, market, W=None):
 
 def evaluate(p, comps_exp, W):
     """Win probability and EV for both sides. comps_exp = projected mean. The 'book' chance is Pinnacle's no-vig price at this line when available."""
-    line = p['line']; pm = p_over(p['market'], comps_exp, line)
+    line = p['line']; pm = p_over(p['market'], None if comps_exp is None else comps_exp * scale_for(p['market']), line)
     if pm is None: return None
     pb = book_over(p['pinO'], p['pinU']) if p.get('pinO') and p.get('pinU') else book_over(p.get('odds'), p.get('uodds'))
     pf_raw = blend(pm, pb, W, p['market']); pf = calibrated(pf_raw, p['market'], W)
@@ -211,9 +222,10 @@ def nba_context(p, P, teams, games, opp, inj, pool, b2b, opt=None, plist=None):
         for k in lost: lost[k] += wt * (num(q.get(k)) or 0)
     uAdj = {k: 1.0 for k in lost}
     if Mout > 0 and mref and mref >= 10:
-        mAdj *= 1 + 0.8 * Mout / 240
-        for k in lost: uAdj[k] = 1 + clamp(0.35 * lost[k] / max(tm.get(k) or 1, 1), 0, 0.15)
-        why.append(f"{', '.join(outs[:3])} out: +{(0.8 * Mout / 240) * 100:.0f}% min, +{(uAdj['pts'] - 1) * 100:.0f}% usage")
+        mb = min(INJ_MIN * Mout / 240, INJ_CAP)  # v7: half the old boost, capped (boosted props ran 2 pts high on points)
+        mAdj *= 1 + mb
+        for k in lost: uAdj[k] = 1 + clamp(INJ_USG * lost[k] / max(tm.get(k) or 1, 1), 0, INJ_CAP)
+        why.append(f"{', '.join(outs[:3])} out: +{mb * 100:.0f}% min, +{(uAdj['pts'] - 1) * 100:.0f}% usage")
     # opponent's injuries: a thinner rotation defends worse (small, since the spread/total already move on injury news),
     # and missing rebounders leave more boards. Scaled by the tunable wOpp weight in project().
     look2 = player_index(plist); oOuts = []; oMout = 0.0; oLost = {'pts': 0.0, 'reb': 0.0, 'ast': 0.0, 'fg3': 0.0}
@@ -228,8 +240,8 @@ def nba_context(p, P, teams, games, opp, inj, pool, b2b, opt=None, plist=None):
         for k in oLost: oLost[k] += wt * (num(q.get(k)) or 0)
     oAdj = {k: 1.0 for k in oLost}
     if oMout > 0:
-        g = clamp(0.12 * oMout / 240, 0, 0.04); oo = T[opp].get('off') or {}
-        oAdj.update(pts=1 + g, ast=1 + g, fg3=1 + g, reb=1 + clamp(0.3 * oLost['reb'] / max(oo.get('reb') or 44, 1), 0, 0.08))
+        g = clamp(0.06 * oMout / 240, 0, 0.02); oo = T[opp].get('off') or {}  # v7: half the old boost
+        oAdj.update(pts=1 + g, ast=1 + g, fg3=1 + g, reb=1 + clamp(0.15 * oLost['reb'] / max(oo.get('reb') or 44, 1), 0, 0.04))
         why.append(f"{opp} missing {', '.join(oOuts[:3])}: +{g * 100:.0f}% scoring, +{(oAdj['reb'] - 1) * 100:.0f}% reb")
     iF = pace = None
     if sp is not None and tot is not None:
@@ -243,16 +255,18 @@ def nba_context(p, P, teams, games, opp, inj, pool, b2b, opt=None, plist=None):
         if s is None: return None
         r5 = num(P.get(k + '5')) if P else None
         sf_name, a, b = STAT_EXP[k]
-        parts.append({'k': k, 's': s, 'rs': (s / smin) if smin else None, 'rr': (r5 / rmin) if (rec and r5 is not None) else None,
-                      'ms': smin, 'mr': rmin if rec else None, 'mAdj': mAdj, 'uAdj': uAdj[k], 'oAdj': oAdj[k],
+        rs = (s / smin) if smin else None; rr = (r5 / rmin) if (rec and r5 is not None) else None
+        if rr is not None and rs is not None: rr = min(rr, rs)  # v7: a hot stretch doesn't raise the projection (role-up props went over only 42-47%)
+        parts.append({'k': k, 's': s, 'rs': rs, 'rr': rr,
+                      'ms': smin, 'mr': min(rmin, smin) if rec else None, 'mAdj': mAdj, 'uAdj': uAdj[k], 'oAdj': oAdj[k],
                       'sf': (iF if sf_name == 'iF' else pace), 'dF': D[k] / avgD[k], 'a': a, 'b': b})
     if rec:
         tag = 'role up' if rmin > smin * 1.08 else 'role down' if rmin < smin * 0.92 else None
-        if tag: why.insert(0, f'{tag}: {rmin:.0f} min last 5 vs {smin:.0f}')
+        if tag: why.insert(0, f'{tag}: {rmin:.0f} min last 5 vs {smin:.0f}' + (' (not counted)' if tag == 'role up' else ''))
     if opt is not None: why.append(f'Optimal proj {opt:.1f}')
     early = bool(P) and (num(P.get('gp5')) or 0) < 3  # fewer than 3 games this season: trust Optimal more
     if early and opt is not None: why.append('early season: leaning on Optimal')
-    return {'lg': 'nba', 'parts': parts, 'why': why, 'opt': opt, 'optW': 0.75 if early else None}
+    return {'lg': 'nba', 'v': MODEL_V, 'parts': parts, 'why': why, 'opt': opt, 'optW': 0.75 if early else None}
 
 def nfl_context(p, P, defense, games, opp, opt=None):
     m = p['market']; D = defense[opp]; names = list(defense); key = 'rush' if m == 'rush' else 'pass'
@@ -264,8 +278,9 @@ def nfl_context(p, P, defense, games, opp, opt=None):
     if not (r is not None and (g3 or 0) >= 2): r = None
     why = []
     if r is not None:
-        if r > s * 1.15: why.append(f'role up: {r:.0f} last 3 vs {s:.0f}')
+        if r > s * 1.15: why.append(f'role up: {r:.0f} last 3 vs {s:.0f} (not counted)')
         elif r < s * 0.85: why.append(f'role down: {r:.0f} last 3 vs {s:.0f}')
+        r = min(r, s)  # v7: only a cooler recent role moves the projection (NFL role-down rush props went over 31%; role-up ones 46%)
     sp, tot = team_lines(games, p['team']); sf = None
     if sp is not None and tot is not None:
         implied = tot / 2 - sp / 2; env = clamp(implied / lgPts, 0.8, 1.25) ** 0.5
@@ -274,21 +289,35 @@ def nfl_context(p, P, defense, games, opp, opt=None):
         if abs(sp) >= 3: why.append(f"{'favored' if sp < 0 else 'underdog'} by {abs(sp):g}: {'run' if sp < 0 else 'pass'}-heavy script")
         why.append(f'team total {implied:.0f}')
     if opt is not None: why.append(f'Optimal proj {opt:.1f}')
-    return {'lg': 'nfl', 'parts': [{'k': m, 's': s, 'r': r, 'sf': sf, 'dF': D[key] / lg, 'a': 1.0, 'b': 0.5}], 'why': why, 'opt': opt}
+    return {'lg': 'nfl', 'v': MODEL_V, 'parts': [{'k': m, 's': s, 'r': r, 'sf': sf, 'dF': D[key] / lg, 'a': 1.0, 'b': 0.5}], 'why': why, 'opt': opt}
+
+def v7_boosts(ctx, c):
+    """(mAdj, uAdj, oAdj) as model v7 would set them. Comps logged before v7 carry the old, doubled injury boosts: halve and cap them
+    here so the weight tuner judges old and new props by the same rules (the teammate minutes boost is read back from the 'why' text)."""
+    m, u, o = c['mAdj'], c['uAdj'], c.get('oAdj', 1.0)
+    if (ctx.get('v') or 6) >= 7: return m, u, o
+    hit = re.search(r'out: \+(\d+)% min', ' '.join(ctx.get('why') or []))
+    inj = int(hit.group(1)) / 100 if hit else 0.0
+    return m / (1 + inj) * (1 + min(inj / 2, INJ_CAP)), 1 + min((u - 1) / 2, INJ_CAP), 1 + (o - 1) / 2
+
 
 def project(ctx, W):
-    """Projected mean from stored components and weights."""
+    """Projected mean from stored components and weights. v7: a recent role above the season's never raises it (applied here too, so old comps follow it)."""
     exp = 0.0
     for c in ctx['parts']:
         if ctx['lg'] == 'nba':
             if c['rs'] is not None and c['ms']:
-                rate = c['rs'] if c['rr'] is None else (1 - W['wRole']) * c['rs'] + W['wRole'] * c['rr']
-                M = (c['ms'] if c['mr'] is None else (1 - W['wRole']) * c['ms'] + W['wRole'] * c['mr']) * c['mAdj']
-                base = rate * min(M, 42) * c['uAdj']
-            else: base = c['s'] * c['uAdj']
-            base *= c.get('oAdj', 1.0) ** W.get('wOpp', 1.0)  # opponent injuries (older picks have none)
+                mAdj, uAdj, oAdj = v7_boosts(ctx, c)
+                rr = None if c['rr'] is None else min(c['rr'], c['rs']); mr = None if c['mr'] is None else min(c['mr'], c['ms'])
+                rate = c['rs'] if rr is None else (1 - W['wRole']) * c['rs'] + W['wRole'] * rr
+                M = (c['ms'] if mr is None else (1 - W['wRole']) * c['ms'] + W['wRole'] * mr) * mAdj
+                base = rate * min(M, 42) * uAdj
+            else:
+                mAdj, uAdj, oAdj = v7_boosts(ctx, c); base = c['s'] * uAdj
+            base *= oAdj ** W.get('wOpp', 1.0)  # opponent injuries (older picks have none)
         else:
-            base = c['s'] if c['r'] is None else (1 - W['wRole']) * c['s'] + W['wRole'] * c['r']
+            r = None if c['r'] is None else min(c['r'], c['s'])
+            base = c['s'] if r is None else (1 - W['wRole']) * c['s'] + W['wRole'] * r
         if c['sf'] is not None: f = c['dF'] ** (c['b'] * W['wMatch']) * c['sf'] ** (c['a'] * W['wScript'])
         else: f = c['dF'] ** ((0.5 if ctx['lg'] == 'nfl' else 1.0) * W['wMatch'])  # no game lines yet: matchup only
         exp += base * f
@@ -352,7 +381,7 @@ if __name__ == '__main__':
         if e and WA<=P(st)<WB:  # shadow log: every evaluated prop in the due games, kept for grading/tuning
             g=[x for x in games if p['team'] in (x['away'],x['home'])][0]
             sid=f"{lg}-{day}-"+re.sub(r'[^a-z0-9]+','-',norm(g['away'])+'-at-'+norm(g['home'])).strip('-')
-            sh=shadow.setdefault(sid,{'date':day,'league':lg.upper(),'game':f"{g['away']} @ {g['home']}",'gameStart':st,'model':6,'createdAt':now.strftime('%Y-%m-%dT%H:%M:%SZ'),'graded':False,'rows':[]})
+            sh=shadow.setdefault(sid,{'date':day,'league':lg.upper(),'game':f"{g['away']} @ {g['home']}",'gameStart':st,'model':MODEL_V,'createdAt':now.strftime('%Y-%m-%dT%H:%M:%SZ'),'graded':False,'rows':[]})
             sh['rows'].append({'player':p['player'],'team':p['team'],'market':p['market'],'line':p['line'],'odds':p.get('odds'),'uodds':p.get('uodds'),'book':p.get('book','consensus'),
                 'pBook':round(e['pBook'],4),'pModel':round(e['pModel'],4),'pOver':round(e['pOver'],4),'pOverRaw':round(e['pOverRaw'],4),'exp':round(exp,2),'comps':ctx})
         if n in usedp: continue  # already has a locked pick today/this week
@@ -375,7 +404,7 @@ if __name__ == '__main__':
         slug=re.sub(r'[^a-z0-9]+','-',norm(r['player'])).strip('-')
         picks.append({'id':f"{lg}-{day}-{slug}-{r['market']}-{r['side']}",'data':{'date':day,'league':lg.upper(),'player':r['player'],'team':r['team'],'opp':r['opp'],'market':r['market'],'side':r['side'],
           'line':r['line'],'odds':r['price'],'avg':r['avg'],'exp':r['exp'],'edge':r['edge'],'rel':r['rel'],
-          'book':r.get('book','consensus'),'bestOver':r.get('bestO'),'bestUnder':r.get('bestU'),'pWin':round(r['pWin'],3),'pModel':round(r['pModel'],3),'pBook':round(r['pBook'],3),'ev':round(r['ev'],3),'why':r['why'],'model':6,'rank':'win','weights':W,'comps':r['ctx'],
+          'book':r.get('book','consensus'),'bestOver':r.get('bestO'),'bestUnder':r.get('bestU'),'pWin':round(r['pWin'],3),'pModel':round(r['pModel'],3),'pBook':round(r['pBook'],3),'ev':round(r['ev'],3),'why':r['why'],'model':MODEL_V,'rank':'win','weights':W,'comps':r['ctx'],
           'gameStart':r['gameStart'],'status':'open','createdAt':now.strftime('%Y-%m-%dT%H:%M:%SZ')}})
     os.makedirs(outf,exist_ok=True)
     for x in picks: json.dump(x['data'],open(os.path.join(outf,x['id']+'.json'),'w'),ensure_ascii=False)
