@@ -112,6 +112,43 @@ rep("  return {pModel:pm, pBook:pb, pOver:pf, side, ev:Math.max(evO,evU), pWin:s
 rep("  db.doc(S.base+'/nbaInjuries').onSnapshot(",
     "  db.doc(S.base+'/calibration').onSnapshot(snap=>{ S.cal = snap.exists?snap.data():null; try{ renderNba(); renderSixty(); }catch(e){} }, ()=>{});\n  db.doc(S.base+'/nbaInjuries').onSnapshot(")
 
+# --- model v7 (Nov 23 2026; mirrors jobs/model/picks_build.py): injury boosts halved + capped, a hot recent role isn't counted
+#     (only a cooler one), and a per-market projection scale from the calibration doc ---
+rep("// ---------- projection model v6 (mirrors picks_build.py, the best-bets script) ----------",
+    "// ---------- projection model v7 (mirrors picks_build.py, the best-bets script) ----------\n"
+    "// v7 (Nov 23 2026): injury boosts halved + capped, a hot recent role isn't counted (only a cooler one), per-market projection scale from calibration.")
+rep("function calP(p, market, W){",
+    "const scaleFor=mk=>{ const v=S.cal?.markets?.[mk]?.scale; return typeof v==='number'?clampN(v,.85,1.15):1; };\nfunction calP(p, market, W){")
+rep("  const pm=modelOver(p.market, exp, p.line); if(pm==null) return null;",
+    "  const pm=modelOver(p.market, exp==null?exp:exp*scaleFor(p.market), p.line); if(pm==null) return null;")
+rep("""  if(Mout>0&&mref&&mref>=10){ mAdj*=1+.8*Mout/240; for(const k in lost) uAdj[k]=1+clampN(.35*lost[k]/Math.max(tm[k]||1,1),0,.15);
+    why.push(`${outs.slice(0,3).join(', ')} out: +${(.8*Mout/240*100).toFixed(0)}% min, +${((uAdj.pts-1)*100).toFixed(0)}% usage`); }""",
+    """  if(Mout>0&&mref&&mref>=10){ const mb=Math.min(.4*Mout/240,.08); mAdj*=1+mb; for(const k in lost) uAdj[k]=1+clampN(.175*lost[k]/Math.max(tm[k]||1,1),0,.08);  // v7: half the old boost, capped
+    why.push(`${outs.slice(0,3).join(', ')} out: +${(mb*100).toFixed(0)}% min, +${((uAdj.pts-1)*100).toFixed(0)}% usage`); }""")
+rep("""  if(oMout>0){ const g=clampN(.12*oMout/240,0,.04), oo=T[opp].off||{}; oAdj.pts=oAdj.ast=oAdj.fg3=1+g; oAdj.reb=1+clampN(.3*oLost.reb/Math.max(oo.reb||44,1),0,.08);""",
+    """  if(oMout>0){ const g=clampN(.06*oMout/240,0,.02), oo=T[opp].off||{}; oAdj.pts=oAdj.ast=oAdj.fg3=1+g; oAdj.reb=1+clampN(.15*oLost.reb/Math.max(oo.reb||44,1),0,.04);""")
+rep("""    parts.push({k, s, rs:smin?s/smin:null, rr:(rec&&r5!=null)?r5/rmin:null, ms:smin, mr:rec?rmin:null, mAdj,""",
+    """    const rs=smin?s/smin:null; let rr=(rec&&r5!=null)?r5/rmin:null; if(rr!=null&&rs!=null) rr=Math.min(rr,rs);  // v7: a hot stretch doesn't raise the projection
+    parts.push({k, s, rs, rr, ms:smin, mr:rec?Math.min(rmin,smin):null, mAdj,""")
+rep("""if(tag) why.unshift(`${tag}: ${rmin.toFixed(0)} min last 5 vs ${smin.toFixed(0)}`); }""",
+    """if(tag) why.unshift(`${tag}: ${rmin.toFixed(0)} min last 5 vs ${smin.toFixed(0)}`+(tag==='role up'?' (not counted)':'')); }""")
+rep("""  if(r!=null){ if(r>s*1.15) why.push(`role up: ${r.toFixed(0)} last 3 vs ${s.toFixed(0)}`); else if(r<s*.85) why.push(`role down: ${r.toFixed(0)} last 3 vs ${s.toFixed(0)}`); }""",
+    """  if(r!=null){ if(r>s*1.15) why.push(`role up: ${r.toFixed(0)} last 3 vs ${s.toFixed(0)} (not counted)`); else if(r<s*.85) why.push(`role down: ${r.toFixed(0)} last 3 vs ${s.toFixed(0)}`); r=Math.min(r,s); }  // v7: only a cooler role counts""")
+
+rep("  return {lg:'nba', parts, why, opt:opt??null, optW:null};", "  return {lg:'nba', v:7, parts, why, opt:opt??null, optW:null};")
+rep("  return {lg:'nfl', parts:[{k:p.market, s, r, sf, dF:D[key]/lg, a:1, b:.5}], why, opt:opt??null};",
+    "  return {lg:'nfl', v:7, parts:[{k:p.market, s, r, sf, dF:D[key]/lg, a:1, b:.5}], why, opt:opt??null};")
+rep("""    if(ctx.lg==='nba'){ if(c.rs!=null&&c.ms){ const rate=c.rr==null?c.rs:(1-W.wRole)*c.rs+W.wRole*c.rr; const M=(c.mr==null?c.ms:(1-W.wRole)*c.ms+W.wRole*c.mr)*c.mAdj; base=rate*Math.min(M,42)*c.uAdj; } else base=c.s*c.uAdj; base*=(c.oAdj??1)**(W.wOpp??1); }
+    else base=c.r==null?c.s:(1-W.wRole)*c.s+W.wRole*c.r;""",
+    """    if(ctx.lg==='nba'){ const [mAdj,uAdj,oAdj]=v7Boosts(ctx,c);
+      if(c.rs!=null&&c.ms){ const rr=c.rr==null?null:Math.min(c.rr,c.rs), mr=c.mr==null?null:Math.min(c.mr,c.ms); const rate=rr==null?c.rs:(1-W.wRole)*c.rs+W.wRole*rr; const M=(mr==null?c.ms:(1-W.wRole)*c.ms+W.wRole*mr)*mAdj; base=rate*Math.min(M,42)*uAdj; } else base=c.s*uAdj; base*=oAdj**(W.wOpp??1); }
+    else { const r=c.r==null?null:Math.min(c.r,c.s); base=r==null?c.s:(1-W.wRole)*c.s+W.wRole*r; }""")
+rep("function projectN(ctx, W){",
+    """// comps logged before v7 carry the old, doubled injury boosts: halve + cap them so the tuner judges old and new props alike (same as v7_boosts in picks_build.py)
+function v7Boosts(ctx,c){ const m=c.mAdj, u=c.uAdj, o=c.oAdj??1; if((ctx.v||6)>=7) return [m,u,o];
+  const h=/out: \\+(\\d+)% min/.exec((ctx.why||[]).join(' ')), inj=h?+h[1]/100:0; return [m/(1+inj)*(1+Math.min(inj/2,.08)), 1+Math.min((u-1)/2,.08), 1+(o-1)/2]; }
+function projectN(ctx, W){""")
+
 # --- men's college basketball tab (content drawn by shim.js from the cbbBoard doc and ledger/cbbgl) ---
 rep('data-tab="cfb">CFB</button>', 'data-tab="cfb">CFB</button>\n      <button role="tab" id="t-cbb" aria-selected="false" data-tab="cbb">CBB</button>')
 rep('<section class="tab" id="tab-score"', '<section class="tab" id="tab-cbb" hidden><div class="panel" id="cbbPanel"><h2>College hoops</h2><p class="small muted">Loading…</p></div></section>\n  <section class="tab" id="tab-score"')

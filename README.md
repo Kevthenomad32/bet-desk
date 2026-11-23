@@ -1,6 +1,6 @@
 # Kev's Bet Desk — standalone
 
-Your Bet Desk running on your own accounts instead of inside Claude. Same page, same model (v6), same tracker. It works on your Mac and iPad, and the hourly jobs run in the cloud.
+Your Bet Desk running on your own accounts instead of inside Claude. Same page, same model (v7), same tracker. It works on your Mac and iPad, and the hourly jobs run in the cloud.
 
 | Piece | Runs on | Cost |
 |---|---|---|
@@ -74,17 +74,9 @@ You can run any job by hand: **Actions → Bet Desk jobs → Run workflow** (`ba
 1. Open `https://your-github-username.github.io/bet-desk/import.html`, sign in, pick `bet-desk-backup.json`, tap **Import**.
 2. Open the app. Your bets, record, profit chart, the model's logged props (60%+ Tracker), NBA game-line calls and model weights are all there.
 
-## StatMuse (optional)
-
-Add a `STATMUSE_API_KEY` secret (from developer.statmuse.com/keys) and run **Set up Supabase** again. Then:
-
-- the jobs take injury reports, NBA team ratings, player averages / last-5 role and NFL defense / player averages from StatMuse (ESPN stays as the automatic fallback; each run's page shows a yellow warning if it had to fall back), and
-
-StatMuse use is about 10–15 requests a day from the jobs, plus one per question you ask.
-
 ## Model calibration
 
-Every night the settle job compares what the model said (its raw over chance) with what actually happened on every graded prop, per market, and stores a correction in the `calibration` doc (recent nights count more; a market needs 60 graded props before it gets one). The hourly model runs and the app both apply it, so a model that keeps over-projecting gets pulled back automatically. Run it by hand with job `calibrate`.
+Every night the settle job compares what the model said (its raw over chance) with what actually happened on every graded prop, per market, and stores a correction in the `calibration` doc (recent nights count more; a market needs 60 graded props before it gets one). The hourly model runs and the app both apply it, so a model that keeps over-projecting gets pulled back automatically. Since model v7 it also learns a per-market projection scale (actual results ÷ projected averages on v7's own graded props, shrunk toward 1 and capped at ±15%) once a market has 60 of them. Run it by hand with job `calibrate`.
 
 ## TheRundown (optional, Starter plan)
 
@@ -140,8 +132,8 @@ If the Claude Bet Desk page changes and you want those changes here, save its HT
 - `web/` — the app (`index.html` is the Bet Desk page; `shim.js` connects it to Supabase, ESPN and Claude; `import.html` restores a backup)
 - `supabase/schema.sql` — database tables and security rules (applied by the Set up Supabase workflow)
 - `tools/sb_env.sh` — looks up the project URL and keys from the access token
-- `supabase/functions/` — `espn` (scores/box scores), `claude` (slip reading), `jobs` (Refresh button), `statmuse` (Ask StatMuse)
-- `jobs/` — the scheduled jobs (`run.py` decides what's due; `model/` holds the v6 picks model, the NBA game-line model and the closing-line script, unchanged)
+- `supabase/functions/` — `espn` (scores/box scores), `claude` (slip reading), `jobs` (Refresh button)
+- `jobs/` — the scheduled jobs (`run.py` decides what's due; `model/` holds the v7 picks model, the NBA game-line model and the closing-line script, unchanged)
 - `tests/` — `pytest tests/` for the jobs; `tests/smoke/run_smoke.py` loads the page in a headless browser against a fake database
 
 ## Value finder, closing line value, alerts

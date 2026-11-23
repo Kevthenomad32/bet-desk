@@ -5,7 +5,10 @@ market this fits   logit(calibrated) = a * logit(raw) + b   on the props the mod
 pulled toward "no change" (a=1, b=0) so a small sample can only move it a little. The result is stored in the
 'calibration' doc and applied by both the hourly model runs and the app page.
 
-Always fit on the RAW model chance (rows keep it as pOverRaw once calibration is on), never on calibrated ones."""
+Always fit on the RAW model chance (rows keep it as pOverRaw once calibration is on), never on calibrated ones.
+
+Since model v7 it also learns a per-market projection 'scale' = actual results / projected averages on v7's own graded props
+(rows keep the unscaled projection as 'exp'), shrunk toward 1 and capped at +/-15%, so an average that runs high or low is pulled back."""
 import datetime as dt
 import math
 
@@ -16,6 +19,9 @@ DAYS = 60           # only the recent past (roles and lines change through a sea
 HALF_LIFE = 14      # days: a prop from two weeks ago counts half as much as last night's
 PRIOR = (4.0, 8.0)  # pull strength toward a=1 and toward b=0 (in "pseudo-observations" per unit)
 A_RANGE, B_RANGE = (0.4, 1.4), (-0.8, 0.8)
+SCALE_MIN_MODEL = 7    # only props priced by model v7+ (older projections ran high for reasons v7 fixed)
+SCALE_PRIOR = 200      # pseudo-props pulling the scale toward 1.0
+SCALE_RANGE = (0.85, 1.15)
 
 clip = lambda x, lo, hi: max(lo, min(hi, x))
 logit = lambda p: math.log(p / (1 - p))
@@ -48,6 +54,36 @@ def samples(shadow_docs, days=DAYS, today=None):
             age = max(0, (today - dt.date.fromisoformat(d['date'])).days) if d.get('date') else DAYS
             out.append((r.get('market'), p, 1 if res > line else 0, 0.5 ** (age / HALF_LIFE)))
     return out
+
+
+def scale_samples(shadow_docs, days=DAYS, today=None):
+    """{market: (n, weighted sum of results, weighted sum of projections)} from graded v7+ shadow docs."""
+    today = today or now_utc().date()
+    cut = (today - dt.timedelta(days=days)).isoformat()
+    out = {}
+    for d in shadow_docs:
+        if (d.get('date') or '') < cut or (d.get('model') or 0) < SCALE_MIN_MODEL:
+            continue
+        age = max(0, (today - dt.date.fromisoformat(d['date'])).days) if d.get('date') else DAYS
+        wt = 0.5 ** (age / HALF_LIFE)
+        for r in d.get('rows') or []:
+            try:
+                res, e = float(r['result']), float(r['exp'])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if e <= 0:
+                continue
+            n, sr, se = out.get(r.get('market'), (0, 0.0, 0.0))
+            out[r.get('market')] = (n + 1, sr + wt * res, se + wt * e)
+    return out
+
+
+def scale_of(n, sr, se):
+    """Results/projections ratio, shrunk toward 1 by SCALE_PRIOR pseudo-props and capped."""
+    if n < MIN_N or se <= 0:
+        return None
+    k = n / (n + SCALE_PRIOR)
+    return round(clip(1 + k * (sr / se - 1), *SCALE_RANGE), 4)
 
 
 def fit(xs, ys, ws=None, iters=50):
@@ -85,6 +121,11 @@ def build(shadow_docs, today=None):
             a, b = fit([logit(p) for p, _, _ in rows], [y for _, y, _ in rows], [w for _, _, w in rows])
             entry.update(a=round(a, 4), b=round(b, 4))
         markets[m] = entry
+    for m, (n, sr, se) in scale_samples(shadow_docs, today=today).items():
+        sc = scale_of(n, sr, se)
+        if sc is not None:
+            markets.setdefault(m, {'n': 0})
+            markets[m].update(scale=sc, scaleN=n)
     return {'updated': iso(now_utc()), 'method': 'logit(p) -> a*logit(p)+b per market, ridge toward no change', 'minN': MIN_N, 'days': DAYS,
             'markets': markets}
 
@@ -102,4 +143,6 @@ def run(db):
     cal = build(db.list('ledger/shadow'))
     db.set('calibration', cal)
     fitted = {m: v for m, v in cal['markets'].items() if 'a' in v}
-    return 'calibration: ' + (', '.join(f"{m} (n {v['n']}, overs hit {v['overRate']:.0%} vs model {v['predOver']:.0%})" for m, v in fitted.items()) or 'not enough graded props yet')
+    scaled = {m: v for m, v in cal['markets'].items() if 'scale' in v}
+    return ('calibration: ' + (', '.join(f"{m} (n {v['n']}, overs hit {v['overRate']:.0%} vs model {v['predOver']:.0%})" for m, v in fitted.items()) or 'not enough graded props yet')
+            + ('; projection scale: ' + ', '.join(f"{m} ×{v['scale']}" for m, v in scaled.items()) if scaled else ''))
