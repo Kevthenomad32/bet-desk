@@ -61,7 +61,7 @@ jobs:
           code=$(curl -sS -o /tmp/r.txt -w '%{http_code}' -X PATCH "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF/config/auth" \
             -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H 'Content-Type: application/json' --data '{"disable_signup": true}')
           if [ "$code" -lt 400 ]; then echo "Public sign-ups are off."; else echo "::warning::Couldn't turn off public sign-ups ($code: $(head -c 300 /tmp/r.txt)). Turn it off in Supabase: Authentication -> Sign In / Providers -> Allow new users to sign up."; fi
-      - uses: supabase/setup-cli@v1
+      - uses: supabase/setup-cli@v1  # newer CLIs ask before changing a project: every remote command below passes --yes
         with:
           version: latest
       - name: Deploy the server functions
@@ -69,16 +69,16 @@ jobs:
         run: |
           failed=""
           for f in espn claude jobs; do
-            supabase functions deploy "$f" --project-ref "$SUPABASE_PROJECT_REF" --use-api \
-              || { sleep 10; supabase functions deploy "$f" --project-ref "$SUPABASE_PROJECT_REF" --use-api; } \
+            supabase functions deploy "$f" --project-ref "$SUPABASE_PROJECT_REF" --use-api --yes \
+              || { sleep 10; supabase functions deploy "$f" --project-ref "$SUPABASE_PROJECT_REF" --use-api --yes; } \
               || failed="$failed $f"
           done
           if [ -n "$failed" ]; then echo "::warning::Couldn't deploy:$failed (the previous version keeps running). Run Set up Supabase again or ask Claude."; exit 1; fi
       - name: Remove retired functions (StatMuse, Nov 2026)
         continue-on-error: true
         run: |
-          supabase functions delete statmuse --project-ref "$SUPABASE_PROJECT_REF" < /dev/null && echo "Removed the statmuse function." || echo "statmuse function already gone."
-          supabase secrets unset --project-ref "$SUPABASE_PROJECT_REF" STATMUSE_API_KEY < /dev/null || true
+          supabase functions delete statmuse --project-ref "$SUPABASE_PROJECT_REF" --yes && echo "Removed the statmuse function." || echo "statmuse function already gone."
+          supabase secrets unset --project-ref "$SUPABASE_PROJECT_REF" --yes STATMUSE_API_KEY || true
       - name: Give the functions their keys
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -87,7 +87,7 @@ jobs:
           ARGS=(GH_REPO="${{ github.repository }}")
           [ -n "$ANTHROPIC_API_KEY" ] && ARGS+=(ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY") || echo "No ANTHROPIC_API_KEY yet: slip reading stays off until you add it and rerun."
           [ -n "$GH_TOKEN_SECRET" ] && ARGS+=(GH_TOKEN="$GH_TOKEN_SECRET") || echo "No GH_TOKEN yet: the app's Refresh button stays off until you add it and rerun."
-          supabase secrets set --project-ref "$SUPABASE_PROJECT_REF" "${ARGS[@]}"
+          supabase secrets set --project-ref "$SUPABASE_PROJECT_REF" --yes "${ARGS[@]}"
       - name: Publish the app and start loading this season's games
         env:
           GH_TOKEN: ${{ github.token }}
