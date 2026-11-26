@@ -24,6 +24,13 @@ backup['docs'] += [{'coll': '', 'id': 'softSpots', 'data': {'week': 10, 'updated
 backup['docs'] += [{'coll': '', 'id': 'value', 'data': {'updated': '2026-11-03T20:00:00Z', 'rows': [
     {'lg': 'nba', 'game': 'Celtics @ Knicks', 'start': '2099-01-01T00:30:00Z', 'kind': 'prop', 'label': 'Jalen Brunson over 26.5 points', 'price': '+105', 'fair': -100, 'fairP': 0.5, 'ev': 0.025, 'avg': 27.1},
     {'lg': 'cbb', 'game': 'Duke @ Kansas', 'start': '2099-01-01T00:30:00Z', 'kind': 'spread', 'label': 'Kansas -1.5', 'price': '+100', 'fair': -104, 'fairP': 0.51, 'ev': 0.02}]}}]
+# price check: tonight's board (Hard Rock line + Pinnacle + best US book)
+backup['docs'] += [{'coll': '', 'id': 'nbaOdds', 'data': {'updated': '2026-11-03T20:00:00Z', 'source': 'TheRundown: Hard Rock + Pinnacle',
+    'games': [{'away': 'Celtics', 'home': 'Knicks', 'start': '2099-01-01T00:30:00Z', 'book': 'Hard Rock', 'awayMascot': 'Celtics', 'homeMascot': 'Knicks',
+               'spread': {'home': -3.5, 'homeOdds': '-110', 'awayOdds': '-110', 'pinHome': -3.5, 'pinHomeOdds': '-104', 'pinAwayOdds': '-106'},
+               'total': {'line': 221.5, 'overOdds': '-110', 'underOdds': '-110', 'pinLine': 221.5, 'pinOver': '-103', 'pinUnder': '-107'}, 'ml': {'home': '-150', 'away': '+130', 'pinHome': '-145', 'pinAway': '+135'}}],
+    'props': [{'player': 'Jalen Brunson', 'team': 'Knicks', 'market': 'pts', 'line': 26.5, 'odds': '-125', 'uodds': '-105', 'book': 'Hard Rock (FL)', 'pinO': '-108', 'pinU': '-112',
+               'bestO': '-110', 'bestU': '+100', 'bestOBook': 'DraftKings', 'bestUBook': 'FanDuel'}]}}]
 ESPN_SB = {'events': [{'id': '401', 'date': '2026-10-29T23:30:00Z', 'season': {'year': 2027, 'type': 2},
                        'status': {'type': {'state': 'in', 'name': 'STATUS_IN_PROGRESS', 'shortDetail': 'Q3 5:12'}},
                        'competitions': [{'broadcasts': [{'names': ['ESPN']}], 'competitors': [
@@ -98,6 +105,20 @@ with sync_playwright() as p:
     pg.screenshot(path=os.environ.get('BANK_SHOT', '/tmp/bank.png'), clip=pg.eval_on_selector('#bankPanel', 'e=>{const r=e.getBoundingClientRect();return {x:r.x,y:r.y+scrollY,width:r.width,height:r.height}}'), full_page=True)
     pg.click('#bankEdit summary'); pg.fill('#st-unit', '50'); pg.fill('#st-floor', '1700'); pg.click('#st-save'); pg.wait_for_timeout(500)
     res['wrote_settings'] = pg.evaluate("window.__WRITES.some(w=>w.id==='settings'&&w.data.unit===50&&w.data.floor===1700&&w.data.week)")
+    # price check in the bet form
+    pg.click('#addBetBtn'); pg.fill('#bf-label', 'Brunson o26.5 pts'); pg.fill('#bf-odds', '-125'); pg.wait_for_timeout(900)
+    res['pc_prop'] = pg.inner_text('#bdPriceCheck').replace('\n', ' | ')
+    pg.fill('#bf-label', 'Jalen Brunson u26.5 points'); pg.fill('#bf-odds', '+100'); pg.wait_for_timeout(900)
+    res['pc_under'] = pg.inner_text('#bdPriceCheck').replace('\n', ' | ')
+    pg.fill('#bf-label', 'Celtics +3.5'); pg.fill('#bf-odds', '-110'); pg.wait_for_timeout(900)
+    res['pc_spread'] = pg.inner_text('#bdPriceCheck').replace('\n', ' | ')
+    pg.fill('#bf-label', 'Brunson o1.5 longest rebound'); pg.wait_for_timeout(900)
+    res['pc_skip'] = pg.inner_text('#bdPriceCheck').replace('\n', ' | ')
+    pg.fill('#bf-label', 'Brunson o26.5 pts, Hart o9.5 reb'); pg.wait_for_timeout(900)
+    res['pc_parlay_hidden'] = pg.eval_on_selector('#bdPriceCheck', 'e=>e.hidden')
+    if os.environ.get('PCSHOT'):
+        pg.fill('#bf-label', 'Brunson o26.5 pts'); pg.fill('#bf-odds', '-125'); pg.wait_for_timeout(900); pg.set_viewport_size({'width': 390, 'height': 844})
+        pg.eval_on_selector('#bdPriceCheck', 'e=>e.scrollIntoView({block:"center"})'); pg.wait_for_timeout(200); pg.screenshot(path=os.environ['PCSHOT']); pg.set_viewport_size({'width': 1200, 'height': 900})
     pg.click('#t-nba'); pg.wait_for_timeout(1500)
     pg.wait_for_timeout(800); res['nba_value'] = pg.inner_text('#tab-nba .bd-value')[-220:].replace('\n', ' | ')
     res['sixty_tiles'] = pg.inner_text('#sixtyTiles').replace('\n', ' | ')[:200]

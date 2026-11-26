@@ -47,7 +47,7 @@ def test_props_use_hard_rock_with_pinnacle_anchor_and_best_price():
     b = props['Jalen Brunson']
     assert b['book'] == 'Hard Rock (FL)' and b['line'] == 26.5 and (b['odds'], b['uodds']) == ('-115', '-105')
     assert (b['pinO'], b['pinU']) == ('-108', '-112') and b['avg'] == 27.0
-    assert (b['bestO'], b['bestU']) == ('-110', '+100')
+    assert (b['bestO'], b['bestU']) == ('-110', '+100') and (b['bestOBook'], b['bestUBook']) == ('DraftKings', 'FanDuel')
 
 
 def test_no_hard_rock_falls_back_to_us_books_main_line():
