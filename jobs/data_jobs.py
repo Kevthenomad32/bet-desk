@@ -2,7 +2,7 @@
 (StatMuse removed Nov 2026: subscription cancelled)."""
 import datetime as dt
 
-from . import espn, lines, sgo, stats
+from . import espn, lines, matchups, sgo, stats
 from .common import ET, et_date, iso, now_et, now_utc
 
 YMD = lambda d: d.strftime('%Y%m%d')
@@ -92,6 +92,11 @@ def nba_daily(db):
     db.set('nbaSlate', {'date': today.isoformat(), 'source': 'ESPN', 'games': [{'away': g['away'], 'home': g['home'], 'time': espn.et_time(g['start'])} for g in sb_today],
                         'b2b': sorted(playing & played_y)})
     out.append(f'{len(sb_today)} games today, b2b: {", ".join(sorted(playing & played_y)) or "none"}')
+    if len(teams) == 30:  # top offense vs bottom defense tonight -> phone alert (once per game)
+        try:
+            out.append(matchups.alert(db, teams, [{'away': g['away'], 'home': g['home'], 'time': espn.et_time(g['start'])} for g in sb_today], today.isoformat()))
+        except Exception as e:  # noqa: BLE001
+            out.append(f'mismatch alert skipped: {e}')
     # players + injury pool
     psrc = 'ESPN box scores'
     players, gp = stats.nba_players(rows)
