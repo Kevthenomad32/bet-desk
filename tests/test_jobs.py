@@ -304,6 +304,19 @@ def test_new_leg_types_grade():
     assert stat_value({'pass': 200}, 'car') is None  # stat not in the box score: left for Claude, not graded as 0
 
 
+def test_longest_and_receptions_markets():
+    """'longest rush' used to be read as rush yards and a misspelled 'Receeptions' as receiving yards (wrong grades and fake CLV)."""
+    from jobs.legs import grade, stat_value
+    legs = parse_label('Bijan Robinson o19.5 longest rush, Nabers o24.5 longest reception, Savion Williams o2.5 Receeptions, Kelce o5.5 catches')
+    assert [l['market'] for l in legs] == ['longRush', 'longRec', 'recs', 'recs']
+    bijan = {'rush': 100, 'longRush': 21, 'car': 19}  # Nov 8 box score
+    assert grade(legs[0], stat_value(bijan, 'longRush')) == 'won'
+    assert stat_value({'rush': 100}, 'longRush') is None  # not in the box score: left for Claude, not graded as 0
+    assert parse_label('Hill o44.5 receiving yds')[0]['market'] == 'rec'
+    for unreadable in ['Brunson o7.5 first quarter pts', 'Mahomes o1.5 1H pass TDs', 'Allen o0.5 Q1 rush yds']:
+        assert parse_label(unreadable) is None, unreadable
+
+
 def test_soft_spots_expire_after_last_game():
     import datetime as dt
     from jobs.ledger_jobs import soft_spots_expired

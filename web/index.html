@@ -818,6 +818,7 @@ function parseLeg(t){
   let m=t.match(/^(.+?)\s+(?:anytime\s*td|atd|anytime touchdown|to score a td)\s*$/i); if(m) return {player:m[1].trim(), market:'td', side:'over', line:0.5, text:t};
   m=t.match(/^(.+?)\s+(o|u|over|under)\s*([\d.]+)\+?\s*(.*)$/i); if(!m) return null;
   const mk=(LEG_MKT.find(([re])=>re.test(m[4]))||[])[1]; if(!mk) return null;
+  if(mk!=='pra'&&/long|\btds?\b|touchdown|att|carr|rec\w*ption|\brecs\b|catch|complet|intercept|\bints?\b|first|1st|quarter|\bq[1-4]\b|half|\b[12]h\b|\+/i.test(m[4])) return null;
   return {player:m[1].trim(), side:/^o/i.test(m[2])?'over':'under', line:parseFloat(m[3]), market:mk, text:t};
 }
 const BOX_KEYS = {pts:['Points'],reb:['Rebounds'],ast:['Assists'],fg3:['ThreePointsMade'],pra:['Points','Rebounds','Assists'],pass:['Passing-Yards'],rush:['Rushing-Yards'],rec:['Receiving-Yards'],td:['Rushing-Touchdowns','Receiving-Touchdowns']};

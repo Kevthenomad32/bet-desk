@@ -156,5 +156,11 @@ rep("slip:'#tab-slip'}", "slip:'#tab-slip', cbb:'#tab-cbb'}")
 rep("try{ if(t==='cfb'){ loadCfb(false); maybeGradeCfb(false); } }catch(e){}",
     "try{ if(t==='cfb'){ loadCfb(false); maybeGradeCfb(false); } }catch(e){}\n  try{ if(t==='cbb' && window.BD_renderCbb) BD_renderCbb(); }catch(e){}")
 
+# --- Settle button: only grade stats the box score really has. 'pass TDs', 'rush attempts', 'receptions', 'longest rush', quarters/halves
+#     used to match the yards markets and get graded on the wrong number; they now wait for the nightly settle job (jobs/legs.py) or Claude ---
+rep("  const mk=(LEG_MKT.find(([re])=>re.test(m[4]))||[])[1]; if(!mk) return null;",
+    "  const mk=(LEG_MKT.find(([re])=>re.test(m[4]))||[])[1]; if(!mk) return null;\n"
+    "  if(mk!=='pra'&&/long|\\btds?\\b|touchdown|att|carr|rec\\w*ption|\\brecs\\b|catch|complet|intercept|\\bints?\\b|first|1st|quarter|\\bq[1-4]\\b|half|\\b[12]h\\b|\\+/i.test(m[4])) return null;")
+
 open(out, 'w', encoding='utf-8').write(s)
 print('built', out, len(s), 'bytes')
