@@ -9,10 +9,12 @@ LEG_MKT = [(r'p\s*\+\s*r\s*\+\s*a|\bpra\b|points\s*\+\s*rebounds\s*\+\s*assists|
            (r'r\s*\+\s*a\b|reb\s*\+\s*ast|rebounds\s*\+\s*assists', 'ra'), (r'3pm|3pt|three|\b3s\b|3-pointers', 'fg3'),
            (r'steal', 'stl'), (r'block', 'blk'), (r'\breb', 'reb'), (r'\bast\b|assist', 'ast'), (r'\bpts?\b|point', 'pts'),
            (r'pass(ing)?\s*(td|touchdown)', 'passTd'), (r'pass(ing)?\s*att', 'att'), (r'complet', 'cmp'), (r'intercept|\bints?\b', 'int'),
+           (r'long(est)?\s*(rush|run|carry)', 'longRush'), (r'long(est)?\s*(rec|catch)', 'longRec'),
            (r'rush(ing)?\s*att|carries', 'car'), (r'rush(ing)?\s*\+\s*rec', 'rr'), (r'pass', 'pass'), (r'rush', 'rush'),
-           (r'receptions|\brecs\b|catches', 'recs'), (r'rec|receiv', 'rec')]
+           (r'rec\w*ption|\brecs\b|catch', 'recs'), (r'rec|receiv', 'rec')]
+UNREADABLE = re.compile(r'\blong|first|1st|alt(ernate)?\b|quarter|\bq[1-4]\b|half|\b1h\b|\b2h\b', re.I)  # stats we can't grade: leave the leg for Claude
 NBA_MKTS = {'pts', 'reb', 'ast', 'fg3', 'pra', 'pr', 'pa', 'ra', 'stl', 'blk', 'dd', 'td3'}
-NFL_MKTS = {'pass', 'rush', 'rec', 'recs', 'td', 'passTd', 'att', 'cmp', 'int', 'car', 'rr'}
+NFL_MKTS = {'pass', 'rush', 'rec', 'recs', 'td', 'passTd', 'att', 'cmp', 'int', 'car', 'rr', 'longRush', 'longRec'}
 SPLIT = re.compile(r'\s*(?:,|;|\n|\s\+\s|\s/\s)\s*')
 CATEGORY = {'pass': 'Passing yds', 'rush': 'Rushing yds', 'rec': 'Receiving yds', 'td': 'Anytime TD', 'pts': 'Points', 'reb': 'Rebounds', 'ast': 'Assists',
             'fg3': '3-pointers', 'pra': 'PRA', 'pr': 'Other', 'pa': 'Other', 'ra': 'Other', 'recs': 'Other', 'dd': 'Double-double', 'td3': 'Triple-double'}
@@ -37,7 +39,7 @@ def parse_leg(t):
     if not m:
         return None
     mk = next((k for rx, k in LEG_MKT if re.search(rx, m.group(4), re.I)), None)
-    if not mk:
+    if not mk or (mk not in ('longRush', 'longRec') and UNREADABLE.search(m.group(4))):
         return None
     player = re.sub(r'\s*\((?:[A-Z]{2,4}\s*@\s*[A-Z]{2,4}|vs?\.? .*)\)\s*$', '', m.group(1)).strip()
     if any(norm(player) == norm(n) for n in list(NBA_AB.values()) + list(NFL_AB.values())) or re.search(r'team total|/', player, re.I):

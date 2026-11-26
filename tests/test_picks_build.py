@@ -3,10 +3,21 @@ from jobs.model import picks_build as P
 CAL = {'markets': {'pts': {'a': 0.635, 'b': -0.0707}, 'pass': {'a': 0.8718, 'b': 0.0888}, 'reb': {'a': 0.9766, 'b': -0.0367}}}
 
 
-def test_pass_is_book_only_in_nfl():
+def test_nfl_yardage_is_book_only():
     W = P.weights({}, 'nfl')
-    assert 'pass' in W['off'] and 'rec' not in W['off']
-    assert P.blend(0.70, 0.52, W, 'pass') == 0.52  # model ignored, no NFL under shift
+    assert set(W['off']) == {'pass', 'rush', 'rec'}  # rush/rec projections added nothing to the line (Nov 26 2026)
+    for mk in ('pass', 'rush', 'rec'):
+        assert P.blend(0.70, 0.52, W, mk) == 0.52  # model ignored, no NFL under shift
+
+
+def test_book_only_markets_use_learned_book_lean(monkeypatch):
+    monkeypatch.setattr(P, 'CAL', {'markets': {'rush': {'ba': 1.0, 'bb': -0.25}, 'reb': {'a': 1.0, 'b': 0.0, 'ba': 1.0, 'bb': -0.5}}})
+    nfl, nba = P.weights({}, 'nfl'), P.weights({}, 'nba')
+    assert abs(P.book_calibrated(0.50, 'rush', nfl) - 0.4378) < 1e-3   # book 50% -> 44% over: an under lean
+    assert P.book_calibrated(0.50, 'rec', nfl) is None                   # not fitted yet: falls back to the plain book price
+    assert P.book_calibrated(0.50, 'reb', nba) is None                   # model markets ignore the book lean
+    e = P.evaluate({'market': 'rush', 'line': 60.5, 'odds': '-110', 'uodds': '-110'}, 90.0, nfl)
+    assert e['side'] == 'under' and abs(e['pOver'] - P.book_calibrated(0.5, 'rush', nfl)) < 1e-9  # a big model over doesn't matter
 
 
 def test_book_only_markets_skip_calibration(monkeypatch):
@@ -22,7 +33,7 @@ def test_book_only_markets_skip_calibration(monkeypatch):
 
 def test_tuned_weights_cannot_drop_off_list():
     W = P.weights({'nfl': {'wModel': 0.15, 'off': []}}, 'nfl')
-    assert W['wModel'] == 0.15 and W['off'] == ('pass',)
+    assert W['wModel'] == 0.15 and W['off'] == ('pass', 'rush', 'rec')
 
 
 # ---------- model v7 (Nov 23 2026) ----------
@@ -73,3 +84,18 @@ def test_projection_scale(monkeypatch):
     assert P.evaluate(p, 8.0, W)['pModel'] < base
     monkeypatch.setattr(P, 'CAL', {'markets': {'reb': {'scale': 0.5}}})  # capped at -15%
     assert abs(P.evaluate(p, 8.0, W)['pModel'] - P.p_over('reb', 8.0 * 0.85, 7.5)) < 1e-9
+
+
+def test_nba_totals_paused(tmp_path):
+    """NBA total calls follow the book (91-114 through Nov 25 2026); spreads still use the model."""
+    import json, datetime as dt
+    from jobs.model import gl_build as G
+    T = {'Celtics': {'off': {'pace': 100, 'ortg': 125}, 'def': {'drtg': 105}, 'gp': 20}, 'Knicks': {'off': {'pace': 100, 'ortg': 110}, 'def': {'drtg': 118}, 'gp': 20}}
+    start = (dt.datetime.now(dt.timezone.utc) + dt.timedelta(hours=2)).strftime('%Y-%m-%dT%H:%M:%SZ')
+    rows = [{'a': 'Celtics', 'h': 'Knicks', 's': start, 'r': '|'.join(['3.5,-110,-110', '200.5,-110,-110', '', '3.5,-105,-115', '200.5,-105,-115'] + [''] * 6)}]
+    a = (dt.datetime.now(dt.timezone.utc)).strftime('%Y-%m-%dT%H:%M:%SZ'); b = (dt.datetime.now(dt.timezone.utc) + dt.timedelta(hours=5)).strftime('%Y-%m-%dT%H:%M:%SZ')
+    assert G.build(rows, T, a, b, str(tmp_path)) == 1
+    c = json.load(open(next(tmp_path.iterdir())))['calls']
+    assert c['total']['pm'] > 0.9 and abs(c['total']['pf'] - c['total']['pb']) < 1e-4   # model says big over; ignored
+    assert c['total']['paused'] and not c['total']['lean']
+    assert abs(c['spread']['pf'] - c['spread']['pb']) > 0.01 and 'paused' not in c['spread']

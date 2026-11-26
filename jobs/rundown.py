@@ -286,9 +286,11 @@ def build(lg, evs, players, team_of=None, prop_markets=None):
                     p['pinO'], p['pinU'] = fmt(pin[1]), fmt(pin[2])
                 elif pin:
                     p['pinLine'] = pin[0]
-                same = [t for a, t in two.items() if a not in (PINNACLE,) and abs(t[0] - line) < 1e-9]
+                same = [(a, t) for a, t in two.items() if a not in (PINNACLE,) and abs(t[0] - line) < 1e-9]
                 if same:
-                    p['bestO'], p['bestU'] = fmt(max(t[1] for t in same)), fmt(max(t[2] for t in same))
+                    bo, bu = max(same, key=lambda x: x[1][1]), max(same, key=lambda x: x[1][2])
+                    p['bestO'], p['bestU'] = fmt(bo[1][1]), fmt(bu[1][2])
+                    p['bestOBook'], p['bestUBook'] = BOOKS.get(bo[0]), BOOKS.get(bu[0])  # who has it (the app's price check names the book)
                 props.append(p)
     return {'source': 'TheRundown: Hard Rock + Pinnacle', 'updated': iso(now_utc()), 'games': games, 'props': props}
 

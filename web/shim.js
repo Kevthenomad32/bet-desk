@@ -181,6 +181,114 @@ document.addEventListener('click', e => { if (e.target.closest && e.target.close
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => setTimeout(valueForVisibleNba, 500)); else setTimeout(valueForVisibleNba, 500);
 document.addEventListener('click', e => { if (e.target.closest && e.target.closest('nav.tabs button')) setTimeout(sixtyForVisible, 50); });
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => setTimeout(sixtyForVisible, 500)); else setTimeout(sixtyForVisible, 500);
+// ---------- Price check: as you type a single into the bet form, compare your price with Pinnacle's fair price and the best US book ----------
+// Uses the nbaOdds / nflOdds docs (Hard Rock line + price, Pinnacle at the same line, best of DraftKings/FanDuel/BetMGM/Caesars).
+// Your singles have been ~4% worse than Pinnacle's closing fair price; this is the check to run before you place one.
+const PC_MKT = [[/p\s*\+\s*r\s*\+\s*a|\bpra\b/i, 'pra'], [/3pm|3pt|three|\b3s\b|3-pointers/i, 'fg3'], [/\breb/i, 'reb'], [/\bast\b|assist/i, 'ast'], [/\bpts?\b|point/i, 'pts'],
+  [/pass(ing)?\s*(yds|yards)?$/i, 'pass'], [/rush(ing)?\s*(yds|yards)?$/i, 'rush'], [/rec(eiving)?\s*(yds|yards)$|receiving/i, 'rec']];
+const PC_SKIP = /long|\btds?\b|touchdown|att|carr|rec\w*ption|\brecs\b|catch|complet|intercept|first|1st|quarter|\bq[1-4]\b|half|\b[12]h\b|steal|block|\+/i;
+const pcCache = {};
+async function pcDoc(id) {
+  const c = pcCache[id]; if (c && Date.now() - c.at < 120000) return c.d;
+  const me = (await getSession()).user.id;
+  const { data } = await sb.from('docs').select('data').eq('uid', me).eq('coll', '').eq('id', id).maybeSingle();
+  pcCache[id] = { at: Date.now(), d: data?.data || null }; return pcCache[id].d;
+}
+const pcNum = v => { const n = parseInt(String(v ?? '').replace(/[^\d+-]/g, ''), 10); return isFinite(n) && Math.abs(n) >= 100 ? n : null; };
+const pcImp = o => o > 0 ? 100 / (o + 100) : -o / (-o + 100);
+const pcFair = (a, b) => { a = pcNum(a); b = pcNum(b); if (a == null || b == null) return null; const x = pcImp(a), y = pcImp(b); return x / (x + y); };
+const pcDec = o => o > 0 ? 1 + o / 100 : 1 + 100 / -o;
+const pcAm = n => n == null ? '—' : (n > 0 ? '+' + n : String(n));
+const pcAmOf = p => { p = Math.min(Math.max(p, 0.01), 0.99); return Math.round(p >= 0.5 ? -100 * p / (1 - p) : 100 * (1 - p) / p); };
+const pcLast = s => norm(s).split(' ').slice(-1)[0];
+function pcParse(label) {
+  const t = String(label || '').trim();
+  if (!t || /,|;|\n|\s\+\s|\s\/\s/.test(t)) return null;  // singles only
+  let m = t.match(/^(.+?)\s+(o|u|over|under)\s*([\d.]+)\s*(.*)$/i);
+  if (m) {
+    const mk = (PC_MKT.find(([re]) => re.test(m[4].trim())) || [])[1];
+    if (mk !== 'pra' && PC_SKIP.test(m[4])) return { skip: true };
+    return { kind: mk ? 'prop' : 'total', who: m[1].trim(), side: /^o/i.test(m[2]) ? 'over' : 'under', line: parseFloat(m[3]), market: mk };
+  }
+  m = t.match(/^(.+?)\s+([+-]\d+(?:\.\d)?)\s*$/); if (m) return { kind: 'spread', who: m[1].trim(), line: parseFloat(m[2]) };
+  m = t.match(/^(.+?)\s+(?:ml|moneyline|to win)\s*$/i); if (m) return { kind: 'ml', who: m[1].trim() };
+  return null;
+}
+function pcFindProp(props, L) {
+  const n = norm(L.who), same = props.filter(p => p.market === L.market);
+  let hit = same.filter(p => norm(p.player) === n);
+  if (!hit.length) { const last = pcLast(L.who); hit = same.filter(p => pcLast(p.player) === last); if (n.split(' ').length > 1) hit = hit.filter(p => norm(p.player)[0] === n[0]); }
+  return new Set(hit.map(p => p.player)).size === 1 ? hit[0] : null;
+}
+function pcFindGame(games, who, anySide) {
+  const w = norm(who); const toks = w.split(' ').filter(x => x.length >= 3);
+  const hits = []; for (const g of games) for (const side of ['home', 'away']) { const n = norm(g[side]), m = norm(g[side + 'Mascot'] || '');
+    if (n === w || m === w || toks.some(x => n.split(' ').includes(x) || m.split(' ').includes(x))) hits.push([g, side]); }
+  if (anySide) { const gs = [...new Set(hits.map(h => h[0]))]; return gs.length === 1 ? [gs[0], 'home'] : null; }  // a total: either team names the game
+  return hits.length === 1 ? hits[0] : null;
+}
+// returns {line, hr, fairP, best, bestBook, note} for the bet's side, or {msg}
+function pcQuote(L, doc) {
+  if (L.kind === 'prop') {
+    const p = pcFindProp(doc.props || [], L); if (!p) return null;
+    const over = L.side === 'over', fp = pcFair(p.pinO, p.pinU);
+    return { what: `${p.player} ${L.side} ${p.line}`, line: p.line, hr: pcNum(over ? p.odds : p.uodds), hrBook: p.book, fairP: fp == null ? null : (over ? fp : 1 - fp),
+      pinLine: fp == null ? p.pinLine : null, best: pcNum(over ? p.bestO : p.bestU), bestBook: over ? p.bestOBook : p.bestUBook, start: (doc.games || []).find(g => g.home === p.team || g.away === p.team)?.start };
+  }
+  const f = pcFindGame(doc.games || [], L.who, L.kind === 'total'); if (!f) return null; const [g, side] = f, other = side === 'home' ? 'away' : 'home';
+  if (L.kind === 'spread') { const sp = g.spread || {}; if (sp.home == null) return null; const myLine = side === 'home' ? sp.home : -sp.home;
+    const same = sp.pinHome != null && Math.abs(sp.pinHome - sp.home) < 1e-9, fp = same ? pcFair(sp.pinHomeOdds, sp.pinAwayOdds) : null;
+    return { what: `${g[side]} ${myLine > 0 ? '+' : ''}${myLine}`, line: myLine, betLine: L.line, hr: pcNum(sp[side + 'Odds']), hrBook: g.book, fairP: fp == null ? null : (side === 'home' ? fp : 1 - fp), pinLine: same ? null : (sp.pinHome == null ? null : (side === 'home' ? sp.pinHome : -sp.pinHome)), start: g.start }; }
+  if (L.kind === 'ml') { const ml = g.ml || {}; const fp = pcFair(ml.pinHome, ml.pinAway);
+    return { what: `${g[side]} ML`, hr: pcNum(ml[side]), hrBook: g.book, fairP: fp == null ? null : (side === 'home' ? fp : 1 - fp), start: g.start }; }
+  const to = g.total || {}; if (to.line == null) return null; const over = L.side === 'over';
+  const same = to.pinLine != null && Math.abs(to.pinLine - to.line) < 1e-9, fp = same ? pcFair(to.pinOver, to.pinUnder) : null;
+  return { what: `${g.away} @ ${g.home} ${L.side} ${to.line}`, line: to.line, hr: pcNum(over ? to.overOdds : to.underOdds), hrBook: g.book, fairP: fp == null ? null : (over ? fp : 1 - fp), pinLine: same ? null : to.pinLine, start: g.start };
+}
+let pcSeq = 0;
+async function priceCheck() {
+  const box = document.getElementById('bdPriceCheck'); if (!box) return;
+  const label = document.getElementById('bf-label')?.value, sport = (document.getElementById('bf-sport')?.value || '').toLowerCase();
+  const L = pcParse(label), seq = ++pcSeq;
+  if (!L) { box.hidden = true; return; }
+  if (L.skip) { box.hidden = false; box.innerHTML = '<b>Price check</b> <span class="muted">· no sharp price to compare for this kind of prop. Points, rebounds, assists, 3s, PRA and yardage lines only.</span>'; return; }
+  const order = sport === 'nfl' ? ['nflOdds', 'nbaOdds'] : sport === 'nba' ? ['nbaOdds', 'nflOdds'] : L.kind === 'prop' && ['pass', 'rush', 'rec'].includes(L.market) ? ['nflOdds'] : ['nbaOdds', 'nflOdds'];
+  let q = null, doc = null;
+  for (const id of order) { doc = await pcDoc(id); if (seq !== pcSeq) return; if (doc && (q = pcQuote(L, doc))) break; }
+  box.hidden = false;
+  if (!q) { box.innerHTML = '<b>Price check</b> <span class="muted">· couldn\'t find this line in today\'s board. Check the name and the stat, e.g. "Jalen Brunson o26.5 pts" or "Jazz +13.5".</span>'; return; }
+  const yours = pcNum(document.getElementById('bf-odds')?.value), price = yours ?? q.hr;
+  const lineMoved = q.betLine != null ? q.betLine !== q.line : (L.line != null && q.line != null && L.line !== q.line);
+  const asOf = doc?.updated ? ' · board as of ' + new Date(doc.updated).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '';
+  const started = q.start && Date.parse(q.start) < Date.now();
+  const bits = [`${esc(q.hrBook || 'Hard Rock')} ${esc(q.what)} <b>${pcAm(q.hr)}</b>`];
+  let verdict = '', advice = '';
+  if (q.fairP != null && !lineMoved && price != null) {
+    const e = q.fairP * pcDec(price) - 1;
+    bits.push(`Pinnacle fair <b>${pcAm(pcAmOf(q.fairP))}</b>`);
+    const pctE = `${e >= 0 ? '+' : '−'}${Math.abs(e * 100).toFixed(1)}% vs fair`;
+    verdict = e >= 0.01 ? `<span class="chip win">Good price · ${pctE}</span>`
+      : e >= -0.025 ? `<span class="chip">Close to fair · ${pctE}</span>`
+      : `<span class="chip loss">Expensive · ${pctE}</span>`;
+    if (e < -0.025) advice = q.best != null && q.best > price ? `Take the ${pcAm(q.best)}${q.bestBook ? ' at ' + q.bestBook : ''}, or skip it.` : 'You\'re paying well over the fair price. Skip it unless you know something the market doesn\'t.';
+  } else if (q.pinLine != null) bits.push(`<span class="muted">Pinnacle is at ${q.pinLine}, so no straight price comparison</span>`);
+  else if (q.fairP == null) bits.push('<span class="muted">no Pinnacle price for this one</span>');
+  if (q.best != null && price != null && q.best > price) bits.push(`best: <b>${pcAm(q.best)}</b>${q.bestBook ? ' at ' + esc(q.bestBook) : ''}`);
+  const warn = [lineMoved ? `the line on the board is ${q.line}, not ${q.betLine ?? L.line}; compare at the same number` : '', started ? 'this game has started' : '', yours == null ? 'type your odds to check your exact price' : ''].filter(Boolean);
+  box.innerHTML = `<div class="row" style="gap:8px;flex-wrap:wrap;align-items:baseline"><b>Price check</b>${verdict}</div><div class="small">${bits.join(' · ')}<span class="muted">${asOf}</span></div>${advice ? `<div class="small"><b>${esc(advice)}</b></div>` : ''}${warn.length ? `<div class="small muted">${esc(warn.join(' · '))}</div>` : ''}`;
+}
+function addPriceCheck() {
+  const form = document.getElementById('betForm'), prev = document.getElementById('bf-preview'); if (!form || !prev || document.getElementById('bdPriceCheck')) return;
+  const box = document.createElement('div'); box.id = 'bdPriceCheck'; box.className = 'small'; box.hidden = true;
+  box.style.cssText = 'border:1px solid var(--line,#CDD5E0);border-radius:8px;padding:8px 10px;display:flex;flex-direction:column;gap:4px;background:var(--surface,#fff)';
+  prev.closest('.row').before(box);
+  let tm = null; const go = () => { clearTimeout(tm); tm = setTimeout(() => priceCheck().catch(e => console.error('price check', e)), 350); };
+  for (const id of ['bf-label', 'bf-odds', 'bf-sport']) { const el = document.getElementById(id); if (el) { el.addEventListener('input', go); el.addEventListener('change', go); } }
+  new MutationObserver(() => { if (!form.hidden) go(); }).observe(form, { attributes: true, attributeFilter: ['hidden'] });
+  new MutationObserver(go).observe(prev, { childList: true, characterData: true, subtree: true });  // slip reader / Edit fill the form without input events
+}
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', addPriceCheck); else addPriceCheck();
+window.BD_priceCheck = { parse: pcParse, quote: pcQuote };
 // ---------- "Ask Claude": a chat panel on every tab; Claude answers from Kev's bets, tonight's lines and the model (claude function, mode 'chat') ----------
 function mdLite(t) {
   const lines = esc(t).split('\n'), out = []; let tbl = null;
