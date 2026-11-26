@@ -78,6 +78,12 @@ You can run any job by hand: **Actions → Bet Desk jobs → Run workflow** (`ba
 
 Every night the settle job compares what the model said (its raw over chance) with what actually happened on every graded prop, per market, and stores a correction in the `calibration` doc (recent nights count more; a market needs 60 graded props before it gets one). The hourly model runs and the app both apply it, so a model that keeps over-projecting gets pulled back automatically. Since model v7 it also learns a per-market projection scale (actual results ÷ projected averages on v7's own graded props, shrunk toward 1 and capped at ±15%) once a market has 60 of them. Run it by hand with job `calibrate`.
 
+**Book-only markets.** Where the model's projection hasn't beaten the line, the app uses the book's no-vig price instead: NBA points and NFL passing, rushing and receiving yards (rushing and receiving were added Nov 26 2026, after 1,011 graded props showed overs hitting 39–48% wherever the projection sat against the line). Each of these markets gets its own lean, fitted nightly on the book's price itself (`ba`/`bb` in the `calibration` doc, after 60 graded props, pulled firmly toward no change). The model's numbers are still logged, so a market can be switched back on once it earns it.
+
+**NBA totals are paused** (Nov 26 2026: the model's total calls went 91–114). They follow the book's price, never count as a lean, and stay out of the 60%+ tracker. Spreads are unchanged.
+
+**Price check.** Typing a single into the Add bet form compares your odds with Pinnacle's no-vig fair price at the same line and names the best price at DraftKings, FanDuel, BetMGM or Caesars when it beats yours.
+
 ## TheRundown (optional, Starter plan)
 
 Add a `THERUNDOWN_API_KEY` secret and every line pull (daily, pre-game, college) switches to TheRundown: Hard Rock's own lines and prices, Pinnacle's price at the same line as the model's sharp anchor (`pinO`/`pinU`), and the best price across DraftKings, FanDuel, BetMGM and Caesars (`bestO`/`bestU`). SportsGameOdds stays as the automatic fallback.

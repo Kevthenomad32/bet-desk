@@ -20,12 +20,15 @@ def load(f):
     return j['data'] if isinstance(j,dict) and isinstance(j.get('data'),dict) else j
 
 DEFAULT_W = {'nba': {'wRole': 0.6, 'wScript': 1.0, 'wMatch': 1.0, 'wModel': 0.3, 'wOpt': 0.5, 'wOpp': 1.0, 'under': 0.02, 'off': ('pts',)},
-             'nfl': {'wRole': 0.5, 'wScript': 1.0, 'wMatch': 1.0, 'wModel': 0.3, 'wOpt': 0.5, 'under': 0.0, 'off': ('pass',)}}
+             'nfl': {'wRole': 0.5, 'wScript': 1.0, 'wMatch': 1.0, 'wModel': 0.3, 'wOpt': 0.5, 'under': 0.0, 'off': ('pass', 'rush', 'rec')}}
 # 'off': markets where the model is ignored and the book's price is used as-is (NBA points: raw model hit 45.8% on 716 graded props, Nov 1 2026;
-#        NFL passing: final picks hit 42% (31/74) vs the book's 50% over Oct 26-Nov 15 2026, Nov 16 2026). The nightly calibration is
+#        NFL passing: final picks hit 42% (31/74) vs the book's 50% over Oct 26-Nov 15 2026, Nov 16 2026; NFL rushing/receiving, Nov 26 2026:
+#        on 1,011 graded props, re-scored as v7, overs hit 39-48% whether the projection sat 15% under the line or 30% over it, so the
+#        projection added nothing the line didn't already know). The nightly calibration is
 #        NOT applied to these either: it is fitted on blended chances, so on a book-only market it stacks a second correction
 #        (NBA points sat ~4 pts under the book instead of the intended 0.02 and could never pick an over). pModel is still logged
-#        in the shadow ledger so the model can be switched back on when it earns it.
+#        in the shadow ledger so the model can be switched back on when it earns it. Instead, once a book-only market has 60 graded props
+#        the settle job fits a lean on the book's own price ('ba'/'bb' in the calibration doc, see jobs/calibrate.py) and that replaces 'under'.
 # 'under': shift toward the under (NBA overs hit 45.8% vs the book's 49.5%; 0.02 picked on Oct props, held up the week of Oct 26).
 
 def blend(pm, pb, W, market):
@@ -158,6 +161,15 @@ def scale_for(market):
     return clamp(float(v), 0.85, 1.15) if isinstance(v, (int, float)) else 1.0
 
 
+def book_calibrated(pb, market, W):
+    """Book-only markets: the book's no-vig chance with the market's learned lean (None until the settle job has fitted one)."""
+    if market not in (W or {}).get('off', ()): return None
+    c = (CAL.get('markets') or {}).get(market) or {}
+    if 'bb' not in c: return None
+    q = clamp(pb, .01, .99); z = c.get('ba', 1.0) * math.log(q / (1 - q)) + c['bb']
+    return clamp(1 / (1 + math.exp(-z)), .01, .99)
+
+
 def calibrated(p, market, W=None):
     """logit(p) -> a*logit(p)+b for markets the settle job has fitted; unchanged otherwise, and for book-only ('off') markets."""
     if market in (W or {}).get('off', ()): return p
@@ -172,7 +184,8 @@ def evaluate(p, comps_exp, W):
     line = p['line']; pm = p_over(p['market'], None if comps_exp is None else comps_exp * scale_for(p['market']), line)
     if pm is None: return None
     pb = book_over(p['pinO'], p['pinU']) if p.get('pinO') and p.get('pinU') else book_over(p.get('odds'), p.get('uodds'))
-    pf_raw = blend(pm, pb, W, p['market']); pf = calibrated(pf_raw, p['market'], W)
+    pf_raw = blend(pm, pb, W, p['market']); pb_cal = book_calibrated(pb, p['market'], W)
+    pf = pb_cal if pb_cal is not None else calibrated(pf_raw, p['market'], W)
     # a missing price is estimated from the book's fair chance plus a normal ~4.5% margin (never assume -110 on a lopsided line)
     do = dec(p.get('odds')) or 1 / (pb * 1.045); du = dec(p.get('uodds')) or 1 / ((1 - pb) * 1.045)
     ev_o = pf * (do - 1) - (1 - pf); ev_u = (1 - pf) * (du - 1) - pf
@@ -385,7 +398,7 @@ if __name__ == '__main__':
             sh['rows'].append({'player':p['player'],'team':p['team'],'market':p['market'],'line':p['line'],'odds':p.get('odds'),'uodds':p.get('uodds'),'book':p.get('book','consensus'),
                 'pBook':round(e['pBook'],4),'pModel':round(e['pModel'],4),'pOver':round(e['pOver'],4),'pOverRaw':round(e['pOverRaw'],4),'exp':round(exp,2),'comps':ctx})
         if n in usedp: continue  # already has a locked pick today/this week
-        if not e or e['pWin']<0.55 or abs(e['pModel']-e['pBook'])>MAX_GAP: continue  # ranked by win chance; 55% minimum
+        if not e or e['pWin']<0.55 or (p['market'] not in W.get('off',()) and abs(e['pModel']-e['pBook'])>MAX_GAP): continue  # ranked by win chance; 55% minimum (the gap rule is for markets the model moves)
         rows.append(dict(p,opp=o,exp=round(exp,1),edge=round(exp-l,1),rel=round((exp-l)/max(exp,0.5 if lg=='nba' else 1),3),gameStart=st,why='; '.join(ctx['why']),ctx=ctx,**e))
     def top(side,k):
         seen=set(); out=[]

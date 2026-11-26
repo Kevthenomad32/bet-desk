@@ -101,12 +101,13 @@ rep("Green = went over the line, red = under. Includes last season, so early gam
     "Green = went over the line, red = under. Only games from this season.")
 
 # --- book-only markets: NFL passing joins NBA points (Nov 16 2026); calibration is skipped for 'off' markets (see jobs/model/picks_build.py) ---
-rep("nfl:{wRole:.5,wScript:1,wMatch:1,wModel:.3,wOpt:.5,under:0,off:[]}};", "nfl:{wRole:.5,wScript:1,wMatch:1,wModel:.3,wOpt:.5,under:0,off:['pass']}};")
+rep("nfl:{wRole:.5,wScript:1,wMatch:1,wModel:.3,wOpt:.5,under:0,off:[]}};", "nfl:{wRole:.5,wScript:1,wMatch:1,wModel:.3,wOpt:.5,under:0,off:['pass','rush','rec']}};")  # rush/rec book-only Nov 26 2026
 
 # --- probability calibration (doc 'calibration', refit nightly by the settle job): same correction the hourly model uses ---
 rep("function evaluateN(p, exp, W){\n  const pm=modelOver(p.market, exp, p.line); if(pm==null) return null;\n  const pb=(p.pinO&&p.pinU)?bookOver(p.pinO,p.pinU):bookOver(p.odds,p.uodds), pf=blendN(pm,pb,W,p.market);",
+    "function bookCalP(pb, market, W){ if(!(W?.off||[]).includes(market)) return null; const c=S.cal?.markets?.[market]; if(!c||c.bb==null||pb==null) return null; const q=Math.min(.99,Math.max(.01,pb)), z=(c.ba??1)*Math.log(q/(1-q))+c.bb; return Math.min(.99,Math.max(.01,1/(1+Math.exp(-z)))); }\n"
     "function calP(p, market, W){ if((W?.off||[]).includes(market)) return p; const c=S.cal?.markets?.[market]; if(!c||c.a==null||p==null) return p; const q=Math.min(.99,Math.max(.01,p)), z=c.a*Math.log(q/(1-q))+c.b; return Math.min(.99,Math.max(.01,1/(1+Math.exp(-z)))); }\n"
-    "function evaluateN(p, exp, W){\n  const pm=modelOver(p.market, exp, p.line); if(pm==null) return null;\n  const pb=(p.pinO&&p.pinU)?bookOver(p.pinO,p.pinU):bookOver(p.odds,p.uodds), pfRaw=blendN(pm,pb,W,p.market), pf=calP(pfRaw,p.market,W);")
+    "function evaluateN(p, exp, W){\n  const pm=modelOver(p.market, exp, p.line); if(pm==null) return null;\n  const pb=(p.pinO&&p.pinU)?bookOver(p.pinO,p.pinU):bookOver(p.odds,p.uodds), pfRaw=blendN(pm,pb,W,p.market), pf=bookCalP(pb,p.market,W)??calP(pfRaw,p.market,W);")
 rep("  return {pModel:pm, pBook:pb, pOver:pf, side, ev:Math.max(evO,evU), pWin:side==='over'?pf:1-pf};",
     "  return {pModel:pm, pBook:pb, pOver:pf, pOverRaw:pfRaw, side, ev:Math.max(evO,evU), pWin:side==='over'?pf:1-pf};")
 rep("  db.doc(S.base+'/nbaInjuries').onSnapshot(",
@@ -161,6 +162,14 @@ rep("try{ if(t==='cfb'){ loadCfb(false); maybeGradeCfb(false); } }catch(e){}",
 rep("  const mk=(LEG_MKT.find(([re])=>re.test(m[4]))||[])[1]; if(!mk) return null;",
     "  const mk=(LEG_MKT.find(([re])=>re.test(m[4]))||[])[1]; if(!mk) return null;\n"
     "  if(mk!=='pra'&&/long|\\btds?\\b|touchdown|att|carr|rec\\w*ption|\\brecs\\b|catch|complet|intercept|\\bints?\\b|first|1st|quarter|\\bq[1-4]\\b|half|\\b[12]h\\b|\\+/i.test(m[4])) return null;")
+
+# --- NBA totals paused (Nov 26 2026): the model's total calls went 91-114 (-15.9%) on 205 graded games while its spreads went 110-95.
+#     Totals now follow the book's no-vig price (weight 0, so no leans and nothing reaches the 60%+ tracker); the record stays visible. ---
+rep("  return {m, spread:cfbMarket('spread',g2,NGL_W), total:cfbMarket('total',g2,NGL_W)}; }",
+    "  return {m, spread:cfbMarket('spread',g2,NGL_W), total:cfbMarket('total',g2,NGL_TOTAL_W)}; }")
+rep("const NGL_W=.3, NGL_HCA=2.0, NGL_SD={s:14.3,t:18.8};", "const NGL_W=.3, NGL_TOTAL_W=0, NGL_HCA=2.0, NGL_SD={s:14.3,t:18.8};  // totals paused: book price only (91-114 through Nov 25)")
+rep("  const msg=$('#nglMsg'); msg.hidden=!NGL.err; msg.textContent=NGL.err||'';",
+    "  const msg=$('#nglMsg'); msg.hidden=false; msg.textContent=NGL.err||'Total calls are paused: the model went 91–114 on totals, so they now show the book\\'s own price and never count as a best bet. Spreads are unchanged.';")
 
 open(out, 'w', encoding='utf-8').write(s)
 print('built', out, len(s), 'bytes')

@@ -10,6 +10,7 @@ def load(f):
     return j['data'] if isinstance(j,dict) and isinstance(j.get('data'),dict) else j
 
 W,HCA,SDS,SDT=.3,2.0,14.3,18.8
+W_TOTAL=0.0  # totals paused Nov 26 2026: model total calls went 91-114 (-15.9%) on 205 graded games; book price only (pm still logged) until it earns it back
 P=lambda s: datetime.datetime.fromisoformat(s.replace('Z','+00:00'))
 nick=lambda s: 'Trail Blazers' if 'Blazers' in (s or '') else (s or '').split()[-1]
 slug=lambda s: re.sub(r'[^a-z0-9]+','-',unicodedata.normalize('NFKD',s).encode('ascii','ignore').decode().lower()).strip('-')
@@ -54,11 +55,11 @@ def build(rows,T,wa,wb,out):
             if pin and abs(pin['l']-hr['l'])>1e-9: pin=None
             src=pin or hr; pb=imp(src['o'])/(imp(src['o'])+imp(src['u']))
             pm=pov(mean,sd,-hr['l']) if k=='spread' else pov(mean,sd,hr['l'])
-            pf=min(.99,max(.01,pb+W*(pm-pb))); A,B=('home','away') if k=='spread' else ('over','under')
+            w=W if k=='spread' else W_TOTAL; pf=min(.99,max(.01,pb+w*(pm-pb))); A,B=('home','away') if k=='spread' else ('over','under')
             side=A if pf>=.5 else B; pw=pf if side==A else 1-pf; price=hr['o'] if side==A else hr['u']
             ev=pw*(dec(price)-1)-(1-pw); gap=abs(pm-pb)
             calls[k]={'line':hr['l'],'odds':hr['o'],'uodds':hr['u'],'book':'consensus','pinO':pin['o'] if pin else None,'pinU':pin['u'] if pin else None,
-                      'pb':r4(pb),'pm':r4(pm),'pf':r4(pf),'side':side,'pWin':r4(pw),'price':price,'ev':r4(ev),'lean':bool(pw>=.53 and gap<=.22 and (-150<=price<=-100 or 100<=price<=130))}
+                      'pb':r4(pb),'pm':r4(pm),'pf':r4(pf),'side':side,'pWin':r4(pw),'price':price,'ev':r4(ev),'lean':bool(w>0 and pw>=.53 and gap<=.22 and (-150<=price<=-100 or 100<=price<=130)),**({} if w>0 else {'paused':True})}
         if not calls: continue
         day=P(s).astimezone(tz).strftime('%Y-%m-%d'); did=f"nba-{day}-{slug(a)}-at-{slug(h)}"
         json.dump({'league':'NBA','model':1,'date':day,'game':f'{a} @ {h}','away':a,'home':h,'gameStart':P(s).strftime('%Y-%m-%dT%H:%M:%SZ'),'createdAt':now.strftime('%Y-%m-%dT%H:%M:%SZ'),

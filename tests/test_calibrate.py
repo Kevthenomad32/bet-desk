@@ -57,3 +57,15 @@ def test_projection_scale_learns_from_v7_only():
     assert m['scaleN'] == 300 and 0.95 < m['scale'] < 1.0           # 57/60 = 0.95, shrunk toward 1
     assert C.build([_v(7, 30, 60.0, 40.0)], today=today)['markets']['rush'].get('scale') is None  # too few
     assert C.build([_v(7, 5000, 60.0, 20.0)], today=today)['markets']['rush']['scale'] == 0.85   # capped
+
+
+def test_book_lean_for_book_only_markets():
+    rnd = random.Random(5)
+    rows = [{'market': 'rush', 'pOver': 0.5, 'pBook': 0.5, 'line': 50.5, 'result': 60 if rnd.random() < 0.43 else 40} for _ in range(400)]
+    cal = C.build([{'date': '2026-11-20', 'rows': rows}], today=dt.date(2026, 11, 22))
+    m = cal['markets']['rush']
+    assert m['bookOver'] == 0.5 and 0.42 < C.apply_book(cal, 'rush', 0.5) < 0.48   # learned, but shrunk toward the book
+    few = C.build([{'date': '2026-11-20', 'rows': rows[:40]}], today=dt.date(2026, 11, 22))
+    assert C.apply_book(few, 'rush', 0.5) is None                                   # needs 60 graded props
+    no_book = [{k: v for k, v in r.items() if k != 'pBook'} for r in rows]
+    assert 'bb' not in C.build([{'date': '2026-11-20', 'rows': no_book}], today=dt.date(2026, 11, 22))['markets']['rush']
